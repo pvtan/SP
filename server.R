@@ -41,14 +41,21 @@ shinyServer(
       })
       
       tweets.df <- twListToDF(tweets)
-      #to remove emojis
-      tweets.df["text"] <- sapply(tweets.df["text"],
-                          function(row) iconv(row, "latin1", "ASCII", sub=""))
       output$tweets <- renderDataTable(tweets.df["text"])
+      tweets.df["text"] <- sapply(tweets.df["text"],
+                          function(row) iconv(row, "latin1", "ASCII", sub="")) #to remove emojis
       tweet_vector <- unlist(tweets.df["text"], use.names=FALSE)
       corpus <- (VectorSource(tweet_vector))
       corpus <- Corpus(corpus)
+      for (i in 1:length(corpus$content)) {
+        corpus[[i]]$content = gsub("@\\w+", "", corpus[[i]]$content) #remove handles
+        corpus[[i]]$content = gsub("http.+", "", corpus[[i]]$content) #remove links
+        corpus[[i]]$content = gsub("RT", "", corpus[[i]]$content) #remove RT labels
+      }
       corpus <- tm_map(corpus, content_transformer(removePunctuation)) #remove punctuations
+      corpus <- tm_map(corpus, content_transformer(tolower)) #case normalize
+      corpus <- tm_map(corpus, content_transformer(removeWords), 
+                       stopwords("english")) #remove stop words
       output$processed_tweets <- renderTable(corpus$content)
     })
   }
