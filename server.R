@@ -8,8 +8,9 @@
 library(shiny)
 library(base64enc)
 library(twitteR)
-#library(tm)
-#library(SnowballC)
+library(hunspell)
+library(tm)
+library(SnowballC)
 source("config.R")
 
 shinyServer(
@@ -27,7 +28,8 @@ shinyServer(
       }
       print(movie)
       
-      #retrieve tweets
+      #retrieve tweets 
+      #from https://shiny.rstudio.com/articles/progress.html
       withProgress(message = 'Retrieving tweets', value = 0, {
         setup_twitter_oauth(api_key, api_secret, access_token, access_token_secret)
         tweets <- searchTwitter(input$query, n=100, lang="en")
@@ -39,9 +41,15 @@ shinyServer(
       })
       
       tweets.df <- twListToDF(tweets)
-      tweet_vector <- unlist(tweets.df["text"], use.names=FALSE)
-      #print(tweet_vector)
+      #to remove emojis
+      tweets.df["text"] <- sapply(tweets.df["text"],
+                          function(row) iconv(row, "latin1", "ASCII", sub=""))
       output$tweets <- renderDataTable(tweets.df["text"])
+      tweet_vector <- unlist(tweets.df["text"], use.names=FALSE)
+      corpus <- (VectorSource(tweet_vector))
+      corpus <- Corpus(corpus)
+      corpus <- tm_map(corpus, content_transformer(removePunctuation)) #remove punctuations
+      output$processed_tweets <- renderTable(corpus$content)
     })
   }
 )

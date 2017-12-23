@@ -12,7 +12,8 @@ shinyUI(
       ),
       mainPanel(
         h1("Main panel"),
-        dataTableOutput("tweets")
+        dataTableOutput("tweets"),
+        tableOutput("processed_tweets")
       )
     )
   )
