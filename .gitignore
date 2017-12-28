@@ -33,3 +33,5 @@ vignettes/*.pdf
 *.knit.md
 
 config.R
+*.txt
+*.bin

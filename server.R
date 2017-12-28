@@ -4,6 +4,8 @@
 #install.packages("hunspell")
 #install.packages("tm")
 #install.packages("SnowballC")
+#install.packages("devtools")
+#devtools::install_github("bmschmidt/wordVectors")
 
 library(shiny)
 library(base64enc)
@@ -11,6 +13,8 @@ library(twitteR)
 library(hunspell)
 library(tm)
 library(SnowballC)
+library(wordVectors)
+library(magrittr)
 source("config.R")
 
 #function to remove contractions in an English-language source
@@ -88,10 +92,17 @@ shinyServer(
         tw <- unlist(tw)
         tw <- stemCompletion(tw, dict)
         tw <- paste(tw, collapse=' ')
-        print(tw)
         corpus[[i]]$content <- tw
       }
       output$processed_tweets <- renderTable(corpus$content)
+      write(corpus$content, file="tweets.txt")
+      #from https://github.com/bmschmidt/wordVectors/blob/master/vignettes/introduction.Rmd
+      #convert tweets to a vector
+      if (!file.exists("tweets.bin")) {
+        model = train_word2vec("tweets.txt","tweets.bin",
+                               vectors=100,threads=4,window=12,iter=5,negative_samples=0)
+      } else model = read.vectors("tweets.bin")
+      print(model)
     })
   }
 )
