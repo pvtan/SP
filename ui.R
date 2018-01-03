@@ -1,4 +1,4 @@
-installed.packages("shiny")
+#installed.packages("shiny")
 library(shiny)
 
 shinyUI(
@@ -13,7 +13,8 @@ shinyUI(
       mainPanel(
         h1("Main panel"),
         dataTableOutput("tweets"),
-        tableOutput("processed_tweets")
+        tableOutput("processed_tweets"),
+        plotOutput("word_cloud")
       )
     )
   )

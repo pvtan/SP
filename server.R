@@ -6,6 +6,10 @@
 #install.packages("SnowballC")
 #install.packages("devtools")
 #devtools::install_github("bmschmidt/wordVectors")
+#install.packages("text2vec")
+#install.packages("caret")
+#install.packages("e1071")
+#install.packages("RTextTools")
 
 library(shiny)
 library(base64enc)
@@ -13,8 +17,12 @@ library(twitteR)
 library(hunspell)
 library(tm)
 library(SnowballC)
-library(wordVectors)
-library(magrittr)
+#library(wordVectors)
+#library(magrittr)
+library(text2vec)
+#library(caret)
+library(e1071)
+#library(RTextTools)
 source("config.R")
 
 #function to remove contractions in an English-language source
@@ -26,9 +34,11 @@ fix.contractions <- function(doc) {
   doc <- gsub("dont", "do not", doc)
   doc <- gsub("n't", " not", doc)
   doc <- gsub("'ll", " will", doc)
+  doc <- gsub("therell", "there will", doc)
   doc <- gsub("'re", " are", doc)
   doc <- gsub("'ve", " have", doc)
   doc <- gsub("'m", " am", doc)
+  doc <- gsub(" im", " I am", doc)
   doc <- gsub("'s", "", doc) # 's could be 'is' or could be possessive: it has no expansion
   return(doc)
 }
@@ -87,22 +97,51 @@ shinyServer(
       for (i in 1:length(corpus$content)) dict <- paste(dict, corpus[[i]]$content, sep=" ")
       dict <- strsplit(dict, "\\s+")
       dict <- unlist(dict)
+      words <- c()
       for (i in 1:length(corpus$content)) {
         tw <- strsplit(corpus[[i]]$content, "\\s+")
         tw <- unlist(tw)
         tw <- stemCompletion(tw, dict)
+        words <- c(words, tw)
         tw <- paste(tw, collapse=' ')
         corpus[[i]]$content <- tw
       }
       output$processed_tweets <- renderTable(corpus$content)
-      write(corpus$content, file="tweets.txt")
+      #write.csv(corpus$content, file="tweets.csv")
       #from https://github.com/bmschmidt/wordVectors/blob/master/vignettes/introduction.Rmd
       #convert tweets to a vector
-      if (!file.exists("tweets.bin")) {
-        model = train_word2vec("tweets.txt","tweets.bin",
-                               vectors=100,threads=4,window=12,iter=5,negative_samples=0)
-      } else model = read.vectors("tweets.bin")
-      print(model)
+      #if (file.exists("tweets.bin")) file.remove("tweets.bin")
+      #model = train_word2vec("tweets.txt","tweets.bin",
+      #                        vectors=100,threads=4,window=12,iter=5,negative_samples=0)
+      #print(model %>% closest_to("good"))
+    
+      data("movie_review")
+      df <- read.csv("tweets.csv")
+      #it <- itoken(movie_review[['review']], 
+      #             preprocess_function = tolower, 
+      #             tokenizer = word_tokenizer)
+      #vocab <- create_vocabulary(it)
+      #vectorizer <- vocab_vectorizer(vocab)
+      #it = itoken(movie_review[['review']], 
+      #          tokenizer = word_tokenizer)
+      #dtm_train = create_dtm(it, vectorizer)
+      movie_review <- movie_review[1:91,]
+      df$id <- as.character(df$id)
+      df$review <- as.character(df$review)
+      df$sentiment <- as.factor(df$sentiment)
+      
+      svm_model <- svm(
+                    df$sentiment ~ df$review, 
+                    data = df,
+                    kernel = "linear",
+                    #cross=10,
+                    cost=10, 
+                    scale=FALSE)
+      
+      pred_train <- predict(svm_model, df)
+      print(mean(pred_train==df$sentiment))
+      print(pred_train)
+      #output$word_cloud <- renderPlot(model)
     })
   }
 )
