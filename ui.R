@@ -14,7 +14,7 @@ shinyUI(
         h1("Main panel"),
         dataTableOutput("tweets"),
         tableOutput("processed_tweets"),
-        plotOutput("word_cloud")
+        plotOutput("pie")
       )
     )
   )

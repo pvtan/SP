@@ -16,11 +16,11 @@ library(base64enc)
 library(twitteR)
 library(hunspell)
 library(tm)
-library(SnowballC)
+#library(SnowballC)
 #library(wordVectors)
 #library(magrittr)
-library(text2vec)
-#library(caret)
+#library(text2vec)
+library(caret)
 library(e1071)
 #library(RTextTools)
 source("config.R")
@@ -115,7 +115,7 @@ shinyServer(
       #                        vectors=100,threads=4,window=12,iter=5,negative_samples=0)
       #print(model %>% closest_to("good"))
     
-      data("movie_review")
+      #data("movie_review")
       df <- read.csv("tweets.csv")
       #it <- itoken(movie_review[['review']], 
       #             preprocess_function = tolower, 
@@ -125,23 +125,36 @@ shinyServer(
       #it = itoken(movie_review[['review']], 
       #          tokenizer = word_tokenizer)
       #dtm_train = create_dtm(it, vectorizer)
-      movie_review <- movie_review[1:91,]
+      #movie_review <- movie_review[1:91,]
       df$id <- as.character(df$id)
       df$review <- as.character(df$review)
       df$sentiment <- as.factor(df$sentiment)
+      train <- df[1:45, ]
+      test <- df[46:90, ]
       
       svm_model <- svm(
-                    df$sentiment ~ df$review, 
-                    data = df,
+                    train$sentiment ~ train$review, 
+                    data = train,
                     kernel = "linear",
                     #cross=10,
                     cost=10, 
                     scale=FALSE)
       
-      pred_train <- predict(svm_model, df)
-      print(mean(pred_train==df$sentiment))
+      pred_train <- predict(svm_model, test)
+      print(mean(pred_train==test$sentiment))
       print(pred_train)
-      #output$word_cloud <- renderPlot(model)
+      tab <- table(pred=pred_train, true=test$sentiment)
+      results <- confusionMatrix(tab)
+      results <- as.matrix(results)
+      print(results)
+      x <- c(
+        sum(results["negative", "negative"], results["negative", "neutral"], results["negative", "positive"]),
+        sum(results["neutral", "negative"], results["neutral", "neutral"], results["neutral", "positive"]),
+        sum(results["positive", "negative"], results["positive", "neutral"], results["positive", "positive"])
+      )
+      labels <- c("Negative", "Neutral", "Positive")
+      # Plot the chart.
+      output$pie <- renderPlot(pie(x,labels))
     })
   }
 )
