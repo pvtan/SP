@@ -32,7 +32,6 @@ vignettes/*.pdf
 *.utf8.md
 *.knit.md
 
-config.R
 *.txt
 *.bin
 *.csv

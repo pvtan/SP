@@ -10,6 +10,8 @@
 #install.packages("caret")
 #install.packages("e1071")
 #install.packages("RTextTools")
+#install.packages("psych")
+#install.packages("lime")
 
 library(shiny)
 library(base64enc)
@@ -22,6 +24,7 @@ library(tm)
 #library(text2vec)
 library(caret)
 library(e1071)
+library(lime)
 #library(RTextTools)
 source("config.R")
 
@@ -70,15 +73,22 @@ shinyServer(
       })
       
       tweets.df <- twListToDF(tweets)
+      write.csv(tweets.df, file="unprocessedTweets.csv")
       tweets.df$screenName <- tolower(tweets.df$screenName)
-      movie <- input$query
-      movie <- tolower(movie)
-      tweets.df <- tweets.df[- grep(movie, tweets.df$screenName),] #movie name not found in screen name
+      movie <- tolower(input$query)
+      filterOut <- tweets.df[grep(movie, tweets.df$screenName),]
+      if(nrow(filterOut) != 0) {
+        tweets.df <- tweets.df[- grep(movie, tweets.df$screenName),] #remove movie name found in screen name
+      }
       output$tweets <- renderDataTable(tweets.df["text"])
       tweets.df["text"] <- sapply(tweets.df["text"],
                           function(row) iconv(row, "latin1", "ASCII", sub="")) #to remove emojis
       tweet_vector <- unlist(tweets.df["text"], use.names=FALSE)
       corpus <- Corpus(VectorSource(tweet_vector))
+      print(corpus$content)
+      if(length(corpus$content) == 0) {
+        print("There are no tweets to undergo pre-processing.")
+      } 
       for (i in 1:length(corpus$content)) {
         #from https://stackoverflow.com/questions/31348453/how-do-i-clean-twitter-data-in-r
         corpus[[i]]$content = gsub("&amp", "", corpus[[i]]$content)
@@ -129,21 +139,29 @@ shinyServer(
       df$id <- as.character(df$id)
       df$review <- as.character(df$review)
       df$sentiment <- as.factor(df$sentiment)
-      train <- df[1:45, ]
-      test <- df[46:90, ]
+      train_data <- df[(1:33), ]
+      test_data <- df[-(1:33), ]
       
       svm_model <- svm(
-                    train$sentiment ~ train$review, 
-                    data = train,
+                    train_data$sentiment ~ train_data$review, 
+                    data = train_data,
                     kernel = "linear",
                     #cross=10,
                     cost=10, 
                     scale=FALSE)
       
-      pred_train <- predict(svm_model, test)
-      print(mean(pred_train==test$sentiment))
-      print(pred_train)
-      tab <- table(pred=pred_train, true=test$sentiment)
+      pred_train <- predict(svm_model, test_data)
+      print(mean(pred_train==test_data$sentiment))
+      #print(pred_train)
+      
+      #model <- train(review ~ sentiment, data = train_data, method = "svmLinear2")
+      #from https://github.com/thomasp85/lime
+      #explainer <- lime(train_data, model)
+      #explanation <- explain(test_data, explainer, n_labels = 3, n_features = 1)
+      #head(explanation)
+      #plot_features(explanation)
+      
+      tab <- table(pred=pred_train, true=test_data$sentiment)
       results <- confusionMatrix(tab)
       results <- as.matrix(results)
       print(results)
