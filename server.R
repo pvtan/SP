@@ -53,9 +53,10 @@ shinyServer(
       movie <- spellCheck()
       #retrieve tweets 
       tweetsRetrieved <- retrieveTweets(movie)
-      
+      #option to remove retweets
       if(input$retweets) tweetsRetrieved <- removeRetweets(tweetsRetrieved)
       
+      #convert to data frame
       tweets.df <- twListToDF(tweetsRetrieved)
       write.csv(tweets.df, file="unprocessedTweets.csv")
       write.csv(tweets.df$id, file="idTweets.txt")
