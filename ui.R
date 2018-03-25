@@ -8,6 +8,9 @@ shinyUI(
       sidebarPanel(
         h2("Side bar panel"),
         textInput("query", "Enter movie title: ", ""),
+        radioButtons("retweets", "Remove retweets?",
+                    c("Yes" = TRUE,
+                      "No" = FALSE)),
         actionButton("enter", "Enter")
       ),
       mainPanel(

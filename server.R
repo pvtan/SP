@@ -25,7 +25,7 @@ library(tm)
 library(caret)
 library(e1071)
 library(lime)
-#library(RTextTools)
+library(RTextTools)
 source("config.R")
 
 #function to remove contractions in an English-language source
@@ -50,6 +50,41 @@ shinyServer(
   function(input, output) {
     observeEvent(input$enter, {
       #spell checker
+      movie <- spellCheck()
+      #retrieve tweets 
+      tweetsRetrieved <- retrieveTweets(movie)
+      
+      if(input$retweets) tweetsRetrieved <- removeRetweets(tweetsRetrieved)
+      
+      tweets.df <- twListToDF(tweetsRetrieved)
+      write.csv(tweets.df, file="unprocessedTweets.csv")
+      write.csv(tweets.df$id, file="idTweets.txt")
+      
+      tweets.df <- removeMovieFoundInScreenname(movie, tweets.df)
+      output$tweets <- renderDataTable(tweets.df["text"])
+      
+      if(length(tweets.df) == 0) {
+        print("There are no tweets to undergo pre-processing.")
+      } else {
+        tweets.df <- preprocessTweets(tweets.df)
+        output$processed_tweets <- renderTable(tweets.df)
+        
+        #write.csv(corpus$content, file="tweets.csv")
+        #from https://github.com/bmschmidt/wordVectors/blob/master/vignettes/introduction.Rmd
+        #convert tweets to a vector
+        #if (file.exists("tweets.bin")) file.remove("tweets.bin")
+        #model = train_word2vec("tweets.txt","tweets.bin",
+        #                        vectors=100,threads=4,window=12,iter=5,negative_samples=0)
+        #print(model %>% closest_to("good"))
+        
+        df <- readDataSet("tweets.csv")
+        
+        useSVMWithMatrix(df)
+        useSVMWithoutMatrix(df)
+      }
+    })
+    
+    spellCheck <- function() {
       movie <- input$query
       bad_words <- hunspell_find(movie)
       sugg <- hunspell_suggest(bad_words[[1]])
@@ -58,13 +93,17 @@ shinyServer(
       print(sugg)
       if (!is.null(sugg)) { 
         movie <- gsub(bad_words[[1]], sugg[[1]], movie) 
+        print("Did you mean ", movie, "?")
       }
       
-      #retrieve tweets 
+      return(movie)
+    }
+    
+    retrieveTweets <- function(movieQuery) {
       #from https://shiny.rstudio.com/articles/progress.html
       withProgress(message = 'Retrieving tweets', value = 0, {
         setup_twitter_oauth(api_key, api_secret, access_token, access_token_secret)
-        tweets <- searchTwitter(input$query, n=100, lang="en", resultType="recent")
+        tweets <- searchTwitter(input$query, n=500, lang="en", resultType="recent")
         n <- 10 # Number of times we'll go through the loop
         for (i in 1:n) {
           incProgress(1/n) # Increment the progress bar, and update the detail text.
@@ -72,23 +111,30 @@ shinyServer(
         }
       })
       
-      tweets.df <- twListToDF(tweets)
-      write.csv(tweets.df, file="unprocessedTweets.csv")
-      tweets.df$screenName <- tolower(tweets.df$screenName)
-      movie <- tolower(input$query)
-      filterOut <- tweets.df[grep(movie, tweets.df$screenName),]
+      return(tweets)
+    }
+    
+    removeRetweets <- function(tweets) {
+      tweets <- strip_retweets(tweets, strip_manual = TRUE, strip_mt = TRUE)
+    }
+    
+    removeMovieFoundInScreenname <- function(movieName, tweets) {
+      tweets$screenName <- tolower(tweets$screenName)
+      movie <- tolower(movieName)
+      filterOut <- tweets[grep(movie, tweets$screenName),]
       if(nrow(filterOut) != 0) {
-        tweets.df <- tweets.df[- grep(movie, tweets.df$screenName),] #remove movie name found in screen name
+        tweets <- tweets[- grep(movie, tweets$screenName),] #remove movie name found in screen name
       }
-      output$tweets <- renderDataTable(tweets.df["text"])
+      
+      return(tweets)
+    }
+    
+    preprocessTweets <- function(tweets.df) {
+      #to remove emojis
       tweets.df["text"] <- sapply(tweets.df["text"],
-                          function(row) iconv(row, "latin1", "ASCII", sub="")) #to remove emojis
+                                  function(row) iconv(row, "latin1", "ASCII", sub="")) 
       tweet_vector <- unlist(tweets.df["text"], use.names=FALSE)
       corpus <- Corpus(VectorSource(tweet_vector))
-      print(corpus$content)
-      if(length(corpus$content) == 0) {
-        print("There are no tweets to undergo pre-processing.")
-      } 
       for (i in 1:length(corpus$content)) {
         #from https://stackoverflow.com/questions/31348453/how-do-i-clean-twitter-data-in-r
         corpus[[i]]$content = gsub("&amp", "", corpus[[i]]$content)
@@ -116,42 +162,45 @@ shinyServer(
         tw <- paste(tw, collapse=' ')
         corpus[[i]]$content <- tw
       }
-      output$processed_tweets <- renderTable(corpus$content)
-      #write.csv(corpus$content, file="tweets.csv")
-      #from https://github.com/bmschmidt/wordVectors/blob/master/vignettes/introduction.Rmd
-      #convert tweets to a vector
-      #if (file.exists("tweets.bin")) file.remove("tweets.bin")
-      #model = train_word2vec("tweets.txt","tweets.bin",
-      #                        vectors=100,threads=4,window=12,iter=5,negative_samples=0)
-      #print(model %>% closest_to("good"))
+      
+      return(corpus$content)
+    }
     
-      #data("movie_review")
-      df <- read.csv("tweets.csv")
-      #it <- itoken(movie_review[['review']], 
-      #             preprocess_function = tolower, 
-      #             tokenizer = word_tokenizer)
-      #vocab <- create_vocabulary(it)
-      #vectorizer <- vocab_vectorizer(vocab)
-      #it = itoken(movie_review[['review']], 
-      #          tokenizer = word_tokenizer)
-      #dtm_train = create_dtm(it, vectorizer)
-      #movie_review <- movie_review[1:91,]
-      df$id <- as.character(df$id)
-      df$review <- as.character(df$review)
-      df$sentiment <- as.factor(df$sentiment)
+    readDataSet <- function(filename) {
+      dataSet <- read.csv(filename)
+      
+      dataSet$id <- as.character(dataSet$id)
+      dataSet$review <- as.character(dataSet$review)
+      dataSet$sentiment <- as.factor(dataSet$sentiment)
+      
+      return(dataSet)
+    }
+    
+    useSVMWithMatrix <- function(df) {
       train_data <- df[(1:33), ]
       test_data <- df[-(1:33), ]
       
-      svm_model <- svm(
-                    train_data$sentiment ~ train_data$review, 
-                    data = train_data,
-                    kernel = "linear",
-                    #cross=10,
-                    cost=10, 
-                    scale=FALSE)
+      dtMatrix <- create_matrix(df$review, weighting=weightTfIdf)
+      container <- create_container(dtMatrix, df$sentiment, trainSize=1:33, testSize= 34:66, virgin=FALSE)
+      svm_model <- train_model(container, "SVM", kernel="linear", cost=1)
+      results <- classify_model(container, svm_model)
+      print(results)
+    }
+    
+    useSVMWithoutMatrix <- function(df) {
+      train_data <- df[(1:33), ]
+      test_data <- df[-(1:33), ]
       
-      pred_train <- predict(svm_model, test_data)
-      print(mean(pred_train==test_data$sentiment))
+      #svm_model <- svm(
+      #              train_data$sentiment ~ train_data$review, 
+      #              data = train_data,
+      #              kernel = "linear",
+      #              #cross=10,
+      #              cost=10, 
+      #              scale=FALSE)
+      
+      #pred_train <- predict(svm_model, test_data)
+      #print(mean(pred_train==test_data$sentiment))
       #print(pred_train)
       
       #model <- train(review ~ sentiment, data = train_data, method = "svmLinear2")
@@ -161,18 +210,18 @@ shinyServer(
       #head(explanation)
       #plot_features(explanation)
       
-      tab <- table(pred=pred_train, true=test_data$sentiment)
-      results <- confusionMatrix(tab)
-      results <- as.matrix(results)
-      print(results)
-      x <- c(
-        sum(results["negative", "negative"], results["negative", "neutral"], results["negative", "positive"]),
-        sum(results["neutral", "negative"], results["neutral", "neutral"], results["neutral", "positive"]),
-        sum(results["positive", "negative"], results["positive", "neutral"], results["positive", "positive"])
-      )
-      labels <- c("Negative", "Neutral", "Positive")
+      #tab <- table(pred=pred_train, true=test_data$sentiment)
+      #results <- confusionMatrix(tab)
+      #results <- as.matrix(results)
+      #print(results)
+      #x <- c(
+      #  sum(results["negative", "negative"], results["negative", "neutral"], results["negative", "positive"]),
+      #  sum(results["neutral", "negative"], results["neutral", "neutral"], results["neutral", "positive"]),
+      #  sum(results["positive", "negative"], results["positive", "neutral"], results["positive", "positive"])
+      #)
+      #labels <- c("Negative", "Neutral", "Positive")
       # Plot the chart.
-      output$pie <- renderPlot(pie(x,labels))
-    })
+      #output$pie <- renderPlot(pie(x,labels))
+    }
   }
 )
