@@ -3,7 +3,6 @@
 #install.packages("twitteR")
 #install.packages("hunspell")
 #install.packages("tm")
-#install.packages("SnowballC")
 #install.packages("devtools")
 #devtools::install_github("bmschmidt/wordVectors")
 #install.packages("text2vec")
@@ -12,13 +11,14 @@
 #install.packages("RTextTools")
 #install.packages("psych")
 #install.packages("lime")
+#install.packages("lexicon")
 
 library(shiny)
 library(base64enc)
-library(twitteR)
+#library(twitteR)
+library(rtweet)
 library(hunspell)
 library(tm)
-#library(SnowballC)
 #library(wordVectors)
 #library(magrittr)
 #library(text2vec)
@@ -26,6 +26,10 @@ library(caret)
 library(e1071)
 library(lime)
 library(RTextTools)
+library(lexicon)
+library(stringr)
+library(corpus)
+library(DT)
 source("config.R")
 
 #function to remove contractions in an English-language source
@@ -49,62 +53,73 @@ fix.contractions <- function(doc) {
 shinyServer(
   function(input, output) {
     observeEvent(input$enter, {
+      data(hash_sentiment_sentiword)
+      print(hash_sentiment_sentiword[1:5,])
       #spell checker
-      movie <- spellCheck()
-      #retrieve tweets 
+      
+      tw <- strsplit(input$query, "\\s+")
+      tw <- unlist(tw)
+      for(i in 1:length(tw)) {
+        tw[i] <- spellCheck(tw[i])
+      }
+      movie <- paste(tw, collapse=" ") 
+      movieHashtag <- paste0("#", paste(tw, collapse="")) 
+      movieQuery <- paste0(movie, " OR ", movieHashtag)
+      
+      print(paste0("Searching for ", movieQuery))
+       
       tweetsRetrieved <- retrieveTweets(movie)
-      #option to remove retweets
-      if(input$retweets) tweetsRetrieved <- removeRetweets(tweetsRetrieved)
+      tweets.df <- data.frame(lapply(tweetsRetrieved, as.character), stringsAsFactors=FALSE)
       
-      #convert to data frame
-      tweets.df <- twListToDF(tweetsRetrieved)
-      write.csv(tweets.df, file="unprocessedTweets.csv")
-      write.csv(tweets.df$id, file="idTweets.txt")
-      
+      #remove movie in screenName
       tweets.df <- removeMovieFoundInScreenname(movie, tweets.df)
-      output$tweets <- renderDataTable(tweets.df["text"])
       
+      #write to file
+      write.csv(tweets.df, file="unprocessedTweets.csv")
+      
+      #pre-processing of tweets
       if(length(tweets.df) == 0) {
         print("There are no tweets to undergo pre-processing.")
       } else {
-        tweets.df <- preprocessTweets(tweets.df)
-        output$processed_tweets <- renderTable(tweets.df)
+        processedTweets <- preprocessTweets(tweets.df)
+        compare <- cbind(tweets.df["text"], processedTweets)
+        output$processed_tweets <- renderTable(compare)
+        write.csv(compare, file="results.csv")
         
-        #write.csv(corpus$content, file="tweets.csv")
-        #from https://github.com/bmschmidt/wordVectors/blob/master/vignettes/introduction.Rmd
-        #convert tweets to a vector
-        #if (file.exists("tweets.bin")) file.remove("tweets.bin")
-        #model = train_word2vec("tweets.txt","tweets.bin",
-        #                        vectors=100,threads=4,window=12,iter=5,negative_samples=0)
-        #print(model %>% closest_to("good"))
+        #df <- readDataSet("tweets.csv")
         
-        df <- readDataSet("tweets.csv")
-        
-        useSVMWithMatrix(df)
-        useSVMWithoutMatrix(df)
+        #useSVMWithMatrix(df)
+        #useSVMWithoutMatrix(df)
       }
     })
     
-    spellCheck <- function() {
-      movie <- input$query
-      bad_words <- hunspell_find(movie)
-      sugg <- hunspell_suggest(bad_words[[1]])
-      print(bad_words[[1]])
-      sugg <- unlist(sugg)
-      print(sugg)
-      if (!is.null(sugg)) { 
-        movie <- gsub(bad_words[[1]], sugg[[1]], movie) 
-        print("Did you mean ", movie, "?")
+    #from https://cran.r-project.org/web/packages/corpus/vignettes/stemmer.html
+    spellCheck <- function(term) {
+      # if the term is spelled correctly, leave it as-is
+      if (hunspell_check(term, dict = dictionary("en_US"))) {
+        return(term)
       }
       
-      return(movie)
+      suggestions <- hunspell::hunspell_suggest(term)[[1]]
+      
+      # if hunspell found a suggestion, use the first one
+      if (length(suggestions) > 0) {
+        return(suggestions[[length(suggestions)]])
+      } else {
+        # otherwise, use the original term
+        return(term)
+      }
     }
     
     retrieveTweets <- function(movieQuery) {
       #from https://shiny.rstudio.com/articles/progress.html
       withProgress(message = 'Retrieving tweets', value = 0, {
-        setup_twitter_oauth(api_key, api_secret, access_token, access_token_secret)
-        tweets <- searchTwitter(input$query, n=500, lang="en", resultType="recent")
+        twitter_token <- create_token(app = "MyTwitterAppSP", consumer_key = api_key, consumer_secret = api_secret)
+        if(input$retweets) {
+          tweets <- search_tweets(movieQuery, n = 300, include_rts = FALSE, lang = "en")
+        } else {
+          tweets <- search_tweets(movieQuery, n = 300, include_rts = TRUE, lang = "en")
+        }
         n <- 10 # Number of times we'll go through the loop
         for (i in 1:n) {
           incProgress(1/n) # Increment the progress bar, and update the detail text.
@@ -115,16 +130,13 @@ shinyServer(
       return(tweets)
     }
     
-    removeRetweets <- function(tweets) {
-      tweets <- strip_retweets(tweets, strip_manual = TRUE, strip_mt = TRUE)
-    }
-    
-    removeMovieFoundInScreenname <- function(movieName, tweets) {
-      tweets$screenName <- tolower(tweets$screenName)
+    removeMovieFoundInScreenname <- function(movieName, tweetsRetrieved) {
+      tweets <- tweetsRetrieved
+      tweets$screen_name <- tolower(tweets$screen_name)
       movie <- tolower(movieName)
-      filterOut <- tweets[grep(movie, tweets$screenName),]
+      filterOut <- tweets[grep(movie, tweets$screen_name),]
       if(nrow(filterOut) != 0) {
-        tweets <- tweets[- grep(movie, tweets$screenName),] #remove movie name found in screen name
+        tweets <- tweets[-grep(movie, tweets$screen_name),] #remove movie name found in screen name
       }
       
       return(tweets)
@@ -136,6 +148,7 @@ shinyServer(
                                   function(row) iconv(row, "latin1", "ASCII", sub="")) 
       tweet_vector <- unlist(tweets.df["text"], use.names=FALSE)
       corpus <- Corpus(VectorSource(tweet_vector))
+      
       for (i in 1:length(corpus$content)) {
         #from https://stackoverflow.com/questions/31348453/how-do-i-clean-twitter-data-in-r
         corpus[[i]]$content = gsub("&amp", "", corpus[[i]]$content)
@@ -145,22 +158,45 @@ shinyServer(
         corpus[[i]]$content = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", "", corpus[[i]]$content)
         corpus[[i]]$content = gsub("RT", "", corpus[[i]]$content) #remove RT labels
       }
+      
+      #expand acronyms
+      print(length(corpus$content))
+      for (i in 1:length(corpus$content)) { #for every tweet
+        tw <- strsplit(corpus[[i]]$content, "\\s+")
+        tw <- unlist(tw)
+        loop <- length(tw)
+        for (j in 1:loop) { #iterate per word
+          tw[j] <- tolower(tw[j])
+          replacement <- slang[slang$x==tw[j], "expansion"]
+          if(!is.na(replacement[1])) {
+            tw[j] <- replacement[1]
+          }
+        }
+        corpus[[i]]$content <- paste(tw, collapse=" ")
+      }
+      
       corpus <- tm_map(corpus, content_transformer(tolower)) #case normalize
       corpus <- tm_map(corpus, fix.contractions)
       corpus <- tm_map(corpus, content_transformer(removePunctuation)) #remove punctuations
-      corpus <- tm_map(corpus, content_transformer(removeWords), 
-                       stopwords("english")) #remove stop words
-      dict <- ""
-      for (i in 1:length(corpus$content)) dict <- paste(dict, corpus[[i]]$content, sep=" ")
-      dict <- strsplit(dict, "\\s+")
-      dict <- unlist(dict)
-      words <- c()
-      for (i in 1:length(corpus$content)) {
-        tw <- strsplit(corpus[[i]]$content, "\\s+")
+      corpus <- tm_map(corpus, content_transformer(removeWords), stopwords("english")) #remove stop words
+      
+      #slang <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/noslang.csv", header=TRUE, sep=",", stringsAsFactors = FALSE)
+      
+      #check for spelling
+      for (i in 1:length(corpus$content)) { #for every tweet
+        tweet <- gsub("\\s+", " ", str_trim(corpus[[i]]$content))
+        tw <- strsplit(tweet, "\\s+")
         tw <- unlist(tw)
-        tw <- stemCompletion(tw, dict)
-        words <- c(words, tw)
-        tw <- paste(tw, collapse=' ')
+        #print(tw)
+        if(length(tw) > 0) {
+          for (j in 1:length(tw)) { #iterate per word
+            #tw[j] <- wordStem(c(tw[j]), language = "english")
+            #tw[j] <- spellCheck(tw[j])
+            token <- text_tokens(c(tw[j]), stemmer = "en")
+            tw[j] <- (unlist(token))[1]
+            tw[j] <- spellCheck(tw[j])
+          } 
+        }
         corpus[[i]]$content <- tw
       }
       
