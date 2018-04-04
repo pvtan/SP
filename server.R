@@ -144,8 +144,7 @@ shinyServer(
     
     preprocessTweets <- function(tweets.df) {
       #to remove emojis
-      tweets.df["text"] <- sapply(tweets.df["text"],
-                                  function(row) iconv(row, "latin1", "ASCII", sub="")) 
+      tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, "latin1", "ASCII", sub="")) 
       tweet_vector <- unlist(tweets.df["text"], use.names=FALSE)
       corpus <- Corpus(VectorSource(tweet_vector))
       
@@ -159,26 +158,30 @@ shinyServer(
         corpus[[i]]$content = gsub("RT", "", corpus[[i]]$content) #remove RT labels
       }
       
+      corpus <- tm_map(corpus, content_transformer(tolower)) #case normalize
+      #corpus <- tm_map(corpus, fix.contractions)
+      corpus <- tm_map(corpus, content_transformer(removePunctuation)) #remove punctuations
+      corpus <- tm_map(corpus, content_transformer(removeWords), stopwords("english")) #remove stop words
+      
       #expand acronyms
       print(length(corpus$content))
       for (i in 1:length(corpus$content)) { #for every tweet
         tw <- strsplit(corpus[[i]]$content, "\\s+")
         tw <- unlist(tw)
         loop <- length(tw)
+        expTweet <- ""
         for (j in 1:loop) { #iterate per word
           tw[j] <- tolower(tw[j])
           replacement <- slang[slang$x==tw[j], "expansion"]
           if(!is.na(replacement[1])) {
             tw[j] <- replacement[1]
+            expTweet <- paste0(expTweet, " ", replacement[1])
+          } else {
+            expTweet <- paste0(expTweet, " ", as.String(tw[j]))
           }
         }
-        corpus[[i]]$content <- paste(tw, collapse=" ")
+        corpus[[i]]$content <- expTweet
       }
-      
-      corpus <- tm_map(corpus, content_transformer(tolower)) #case normalize
-      corpus <- tm_map(corpus, fix.contractions)
-      corpus <- tm_map(corpus, content_transformer(removePunctuation)) #remove punctuations
-      corpus <- tm_map(corpus, content_transformer(removeWords), stopwords("english")) #remove stop words
       
       #slang <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/noslang.csv", header=TRUE, sep=",", stringsAsFactors = FALSE)
       
@@ -192,9 +195,10 @@ shinyServer(
           for (j in 1:length(tw)) { #iterate per word
             #tw[j] <- wordStem(c(tw[j]), language = "english")
             #tw[j] <- spellCheck(tw[j])
+            tw[j] <- gsub("([[:alpha:]])\\1{2,}", "\\2", as.String(tw[j]))
             token <- text_tokens(c(tw[j]), stemmer = "en")
             tw[j] <- (unlist(token))[1]
-            tw[j] <- spellCheck(tw[j])
+            tw[j] <- spellCheck(as.String(tw[j]))
           } 
         }
         corpus[[i]]$content <- tw
