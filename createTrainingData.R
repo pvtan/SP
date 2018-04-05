@@ -5,6 +5,7 @@
 
 library(rtweet)
 library(indicoio)
+library(syuzhet)
 source("SP/config.R")
 
 twitter_token <- create_token(app = "MyTwitterAppSP", consumer_key = api_key, consumer_secret = api_secret)
@@ -21,9 +22,7 @@ tweets <- Map(
     "#moviecritic", 
     "#filmcritic", 
     "#movie #critic", 
-    "#film #critic",
-    "#bollywood",
-    "#hollywood"),
+    "#film #critic"),
   n = 1000,
   include_rts = FALSE, 
   lang = "en"
@@ -33,6 +32,8 @@ tweets.df <- data.frame(lapply(tweets, as.character), stringsAsFactors=FALSE)
 tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, to="utf-8"))
 tweets.df["emotion"] <- NA
 tw <- as.vector(unlist(tweets.df["text"]))
-emotion <- sentiment(tw, api_key = '788c54b98bd2281122a1bf42ee013cc9')
+emotion <- get_sentiment(tw, method = "syuzhet", path_to_tagger = NULL,
+              cl = NULL, language = "english", lexicon = NULL)
+emotion <- sign(emotion)
 SA <- data.frame(text=tw,b=unlist(emotion))
 write.csv(SA, "trainingData.csv")

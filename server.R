@@ -54,7 +54,8 @@ fix.contractions <- function(doc) {
 shinyServer(
   function(input, output) {
     observeEvent(input$enter, {
-      #data(hash_sentiment_sentiword)
+      data(hash_sentiment_sentiword)
+      print(hash_sentiment_sentiword[1:3,])
       #from https://raw.githubusercontent.com/today-is-a-good-day/Emoticons/master/emDict.csv
       emoticons <- read.csv("dict/newEmDict.csv", header = T)
       #spell checker
@@ -152,8 +153,8 @@ shinyServer(
     }
     
     preprocessTweets <- function(tweets.df) {
-      #to remove emojis
-      #tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, "latin1", "ASCII", sub="")) 
+      #to remove unreadable/extra characters
+      tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, "latin1", "ASCII", sub="")) 
       tweet_vector <- unlist(tweets.df["text"], use.names=FALSE)
       corpus <- Corpus(VectorSource(tweet_vector))
       
