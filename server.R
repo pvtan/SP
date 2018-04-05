@@ -30,6 +30,7 @@ library(lexicon)
 library(stringr)
 library(corpus)
 library(DT)
+library(DataCombine)
 source("config.R")
 
 #function to remove contractions in an English-language source
@@ -53,8 +54,9 @@ fix.contractions <- function(doc) {
 shinyServer(
   function(input, output) {
     observeEvent(input$enter, {
-      data(hash_sentiment_sentiword)
-      print(hash_sentiment_sentiword[1:5,])
+      #data(hash_sentiment_sentiword)
+      #from https://raw.githubusercontent.com/today-is-a-good-day/Emoticons/master/emDict.csv
+      emoticons <- read.csv("dict/newEmDict.csv", header = T)
       #spell checker
       
       tw <- strsplit(input$query, "\\s+")
@@ -70,6 +72,13 @@ shinyServer(
        
       tweetsRetrieved <- retrieveTweets(movie)
       tweets.df <- data.frame(lapply(tweetsRetrieved, as.character), stringsAsFactors=FALSE)
+      tweets.df$text <- sapply(tweets.df$text, function(row) iconv(row, from = "", to = "ASCII", sub = "byte"))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub(">", " ", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("<", "", row))
+      tweets.df <- FindReplace(data = tweets.df, Var = "text", 
+                            replaceData = emoticons,
+                            from = "Bytes", to = "Description", 
+                            exact = FALSE) #DataCombine
       
       #remove movie in screenName
       tweets.df <- removeMovieFoundInScreenname(movie, tweets.df)
@@ -144,7 +153,7 @@ shinyServer(
     
     preprocessTweets <- function(tweets.df) {
       #to remove emojis
-      tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, "latin1", "ASCII", sub="")) 
+      #tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, "latin1", "ASCII", sub="")) 
       tweet_vector <- unlist(tweets.df["text"], use.names=FALSE)
       corpus <- Corpus(VectorSource(tweet_vector))
       
