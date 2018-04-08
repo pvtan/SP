@@ -12,6 +12,7 @@
 #install.packages("psych")
 #install.packages("lime")
 #install.packages("lexicon")
+#install.packages("coreNLP",INSTALL_opts="--no-multiarch")
 
 library(shiny)
 library(base64enc)
@@ -31,6 +32,7 @@ library(stringr)
 library(corpus)
 library(DT)
 library(DataCombine)
+library(coreNLP)
 source("config.R")
 
 #function to remove contractions in an English-language source
@@ -51,15 +53,16 @@ fix.contractions <- function(doc) {
   return(doc)
 }
 
+contractions <- data.frame(word = c("won't", "wont", "dont't", "dont", "'ll", "therell", "'re", "'ve", "I'm", " im ", "'s", "can't", "cant", "didnt", "n't"),
+                           expansion = c("will not", "will not", "do not", "do not"," will", "there will", " are", " have", "I am", " I am", "", "can not", "can not", "did not", " not"))
+
 shinyServer(
   function(input, output) {
     observeEvent(input$enter, {
       data(hash_sentiment_sentiword)
       print(hash_sentiment_sentiword[1:3,])
-      #from https://raw.githubusercontent.com/today-is-a-good-day/Emoticons/master/emDict.csv
-      emoticons <- read.csv("dict/newEmDict.csv", header = T)
-      #spell checker
       
+      #spell checker
       tw <- strsplit(input$query, "\\s+")
       tw <- unlist(tw)
       for(i in 1:length(tw)) {
@@ -73,13 +76,6 @@ shinyServer(
        
       tweetsRetrieved <- retrieveTweets(movie)
       tweets.df <- data.frame(lapply(tweetsRetrieved, as.character), stringsAsFactors=FALSE)
-      tweets.df$text <- sapply(tweets.df$text, function(row) iconv(row, from = "", to = "ASCII", sub = "byte"))
-      tweets.df$text <- sapply(tweets.df$text, function(row) gsub(">", " ", row))
-      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("<", "", row))
-      tweets.df <- FindReplace(data = tweets.df, Var = "text", 
-                            replaceData = emoticons,
-                            from = "Bytes", to = "Description", 
-                            exact = FALSE) #DataCombine
       
       #remove movie in screenName
       tweets.df <- removeMovieFoundInScreenname(movie, tweets.df)
@@ -91,8 +87,15 @@ shinyServer(
       if(length(tweets.df) == 0) {
         print("There are no tweets to undergo pre-processing.")
       } else {
-        processedTweets <- preprocessTweets(tweets.df)
-        compare <- cbind(tweets.df["text"], processedTweets)
+        #processedTweets <- preprocessTweets(tweets.df)
+        processedTweets <- tweets.df
+        processedTweets <- fixContractions(processedTweets)
+        processedTweets <- preprocessTweets(processedTweets)
+        processedTweets <- decodeEmojis(processedTweets) 
+        #remove punctuations after
+        processedTweets <- expandAcronyms(processedTweets) 
+        processedTweets <- shortenLongWords(processedTweets)
+        compare <- cbind(tweets.df["text"], processedTweets["text"])
         output$processed_tweets <- renderTable(compare)
         write.csv(compare, file="results.csv")
         
@@ -152,31 +155,46 @@ shinyServer(
       return(tweets)
     }
     
-    preprocessTweets <- function(tweets.df) {
-      #to remove unreadable/extra characters
-      tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, "latin1", "ASCII", sub="")) 
-      tweet_vector <- unlist(tweets.df["text"], use.names=FALSE)
-      corpus <- Corpus(VectorSource(tweet_vector))
-      
-      for (i in 1:length(corpus$content)) {
-        #from https://stackoverflow.com/questions/31348453/how-do-i-clean-twitter-data-in-r
-        corpus[[i]]$content = gsub("&amp", "", corpus[[i]]$content)
-        corpus[[i]]$content = gsub("@\\w+", "", corpus[[i]]$content) #remove handles
-        corpus[[i]]$content = gsub("#\\w+", "", corpus[[i]]$content) #remove hashtags
-        corpus[[i]]$content = gsub("http.+", "", corpus[[i]]$content) #remove links
-        corpus[[i]]$content = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", "", corpus[[i]]$content)
-        corpus[[i]]$content = gsub("RT", "", corpus[[i]]$content) #remove RT labels
-      }
-      
-      corpus <- tm_map(corpus, content_transformer(tolower)) #case normalize
-      #corpus <- tm_map(corpus, fix.contractions)
-      corpus <- tm_map(corpus, content_transformer(removePunctuation)) #remove punctuations
-      corpus <- tm_map(corpus, content_transformer(removeWords), stopwords("english")) #remove stop words
-      
+    fixContractions <- function(tweets.df) {
+      removedContractions <- FindReplace(data = tweets.df, Var = "text", 
+                  replaceData = contractions,
+                  from = "word", to = "expansion", 
+                  exact = FALSE) #DataCombine
+      return(removedContractions)
+    }
+    
+    decodeEmojis <- function(tweets.df) {
+      #from https://raw.githubusercontent.com/today-is-a-good-day/Emoticons/master/emDict.csv
+      emoticons <- read.csv("dict/newEmDict.csv", header = T)
+      tweets.df$text <- sapply(tweets.df$text, function(row) iconv(row, from = "", to = "ASCII", sub = "byte"))
+      tweets.df <- FindReplace(data = tweets.df, Var = "text", 
+                               replaceData = emoticons,
+                               from = "R_Encoding", to = "Description", 
+                               exact = FALSE) #DataCombine
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub(">", "", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("<", " ", row))
+      tweets.df <- FindReplace(data = tweets.df, Var = "text", 
+                               replaceData = emoticons,
+                               from = "Bytes", to = "Description", 
+                               exact = FALSE) #DataCombine
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("( )*e2 [8-9][0-9] [a-zA-Z0-9][a-zA-Z0-9]( )*", "", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("f0(\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e0(\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e[3-6d-f](\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
+      #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e6(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
+      #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("ed(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
+      #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("ef(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
+      return(tweets.df)
+    }
+    
+    expandAcronyms <- function(tweets.df) {
       #expand acronyms
-      print(length(corpus$content))
-      for (i in 1:length(corpus$content)) { #for every tweet
-        tw <- strsplit(corpus[[i]]$content, "\\s+")
+      slang <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/noslang.csv", header=TRUE, sep=",", stringsAsFactors = FALSE)
+      print(nrow(tweets.df))
+      tweetData <- tweets.df
+      tweets <- unlist(tweetData$text)
+      for (i in 1:length(tweets)) { #for every tweet
+        tw <- strsplit(tweets[i], "\\s+")
         tw <- unlist(tw)
         loop <- length(tw)
         expTweet <- ""
@@ -190,14 +208,23 @@ shinyServer(
             expTweet <- paste0(expTweet, " ", as.String(tw[j]))
           }
         }
-        corpus[[i]]$content <- expTweet
+        tweets[i] <- expTweet
       }
-      
-      #slang <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/noslang.csv", header=TRUE, sep=",", stringsAsFactors = FALSE)
-      
+      tweetData$text <- tweets
+      return(tweetData)
+    }
+    
+    shortenLongWords <- function(tweets.df) {
+      tweets <- tweets.df
+      tweets$text <- sapply(tweets$text, function(row) gsub("([[:alpha:]])\\1+", "\\1\\1", row))
+      return(tweets)
+    }
+    
+    spellCorrection <- function(tweets) {
       #check for spelling
-      for (i in 1:length(corpus$content)) { #for every tweet
-        tweet <- gsub("\\s+", " ", str_trim(corpus[[i]]$content))
+      tweets <- unlist(tweets)
+      for (i in 1:length(tweets)) { #for every tweet
+        tweet <- gsub("\\s+", " ", str_trim(tweets[i]))
         tw <- strsplit(tweet, "\\s+")
         tw <- unlist(tw)
         #print(tw)
@@ -211,10 +238,34 @@ shinyServer(
             tw[j] <- spellCheck(as.String(tw[j]))
           } 
         }
-        corpus[[i]]$content <- tw
+        tweets[i] <- tw
+      }
+      return(tweets)
+    }
+    
+    preprocessTweets <- function(tweets.df) {
+      #to remove unreadable/extra characters
+      #tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, "ASCII", "latin1", sub="")) 
+      tweets <- tweets.df
+      tweet_vector <- unlist(tweets$text, use.names=FALSE)
+      corpus <- Corpus(VectorSource(tweet_vector))
+      
+      for (i in 1:length(corpus$content)) {
+        #from https://stackoverflow.com/questions/31348453/how-do-i-clean-twitter-data-in-r
+        corpus[[i]]$content = gsub("&amp", "", corpus[[i]]$content)
+        corpus[[i]]$content = gsub("@\\w+", "", corpus[[i]]$content) #remove handles
+        corpus[[i]]$content = gsub("#\\w+", "", corpus[[i]]$content) #remove hashtags
+        corpus[[i]]$content = gsub("http.+", "", corpus[[i]]$content) #remove links
+        #corpus[[i]]$content = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", "", corpus[[i]]$content)
+        corpus[[i]]$content = gsub(":", "", corpus[[i]]$content) #remove RT labels
       }
       
-      return(corpus$content)
+      #corpus <- tm_map(corpus, content_transformer(tolower)) #case normalize
+      #corpus <- tm_map(corpus, fix.contractions)
+      #corpus <- tm_map(corpus, content_transformer(removePunctuation)) #remove punctuations
+      #corpus <- tm_map(corpus, content_transformer(removeWords), stopwords("english")) #remove stop words
+      tweets["text"] <- corpus$content
+      return(tweets)
     }
     
     readDataSet <- function(filename) {
@@ -228,7 +279,7 @@ shinyServer(
     }
     
     useSVMWithMatrix <- function(df) {
-      train_data <- df[(1:33), ]
+      train_data <- df[(1:33), ] #this must be 80 20
       test_data <- df[-(1:33), ]
       
       dtMatrix <- create_matrix(df$review, weighting=weightTfIdf)

@@ -32,7 +32,7 @@ tweets.df <- data.frame(lapply(tweets, as.character), stringsAsFactors=FALSE)
 tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, to="utf-8"))
 tweets.df["emotion"] <- NA
 tw <- as.vector(unlist(tweets.df["text"]))
-emotion <- get_sentiment(tw, method = "syuzhet", path_to_tagger = NULL,
+emotion <- get_sentiment(tw, method = "syuzhet", path_to_tagger = "/SP/dict/stanford-corenlp-full-2014-01-04",
               cl = NULL, language = "english", lexicon = NULL)
 emotion <- sign(emotion)
 SA <- data.frame(text=tw,b=unlist(emotion))
