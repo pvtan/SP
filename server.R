@@ -29,10 +29,12 @@ library(lime)
 library(RTextTools)
 library(lexicon)
 library(stringr)
-library(corpus)
-library(DT)
+#library(corpus)
 library(DataCombine)
-library(coreNLP)
+library(NLP)
+library(openNLP)
+library(dplyr)
+#library(coreNLP)
 source("config.R")
 
 #function to remove contractions in an English-language source
@@ -54,14 +56,11 @@ fix.contractions <- function(doc) {
 }
 
 contractions <- data.frame(word = c("won't", "wont", "dont't", "dont", "'ll", "therell", "'re", "'ve", "I'm", " im ", "'s", "can't", "cant", "didnt", "n't"),
-                           expansion = c("will not", "will not", "do not", "do not"," will", "there will", " are", " have", "I am", " I am", "", "can not", "can not", "did not", " not"))
+                           expansion = c("will not", "will not", "do not", "do not"," will", "there will", " are", " have", "I am", " I am ", "", "can not", "can not", "did not", " not"))
 
 shinyServer(
   function(input, output) {
     observeEvent(input$enter, {
-      data(hash_sentiment_sentiword)
-      print(hash_sentiment_sentiword[1:3,])
-      
       #spell checker
       tw <- strsplit(input$query, "\\s+")
       tw <- unlist(tw)
@@ -87,40 +86,50 @@ shinyServer(
       if(length(tweets.df) == 0) {
         print("There are no tweets to undergo pre-processing.")
       } else {
-        #processedTweets <- preprocessTweets(tweets.df)
-        processedTweets <- tweets.df
-        processedTweets <- fixContractions(processedTweets)
-        processedTweets <- preprocessTweets(processedTweets)
-        processedTweets <- decodeEmojis(processedTweets) 
-        #remove punctuations after
-        processedTweets <- expandAcronyms(processedTweets) 
-        processedTweets <- shortenLongWords(processedTweets)
-        compare <- cbind(tweets.df["text"], processedTweets["text"])
-        output$processed_tweets <- renderTable(compare)
-        write.csv(compare, file="results.csv")
-        
-        #df <- readDataSet("tweets.csv")
+        preprocessTweets(tweets.df, "results.csv")
+        if(input$preprocess) {
+        } else {
+        }
         
         #useSVMWithMatrix(df)
         #useSVMWithoutMatrix(df)
       }
     })
     
+    preprocessTweets <- function(tweets.df, filename) {
+      processedTweets <- tweets.df
+      processedTweets <- cleanTweets(processedTweets)
+      processedTweets <- fixContractions(processedTweets)
+      processedTweets <- decodeEmojis(processedTweets) 
+      processedTweets <- removePunctuations(processedTweets)
+      processedTweets <- expandAcronyms(processedTweets) 
+      processedTweets <- fixContractions(processedTweets)
+      processedTweets <- shortenLongWords(processedTweets)
+      processedTweets <- applyPOSTag(processedTweets)
+      #processedTweets <- spellCorrection(processedTweets)
+      compare <- cbind("orig" = tweets.df["text"], "text" = processedTweets["text"])
+      compare <- compare[!is.na(compare$text), ]
+      cld2Col <- sapply(compare$text, function(row) cld2::detect_language(text = row, plain_text = FALSE))
+      compare <- cbind(compare, "cld2Col" = cld2Col)
+      compare <- compare[(compare$cld2Col=="en"), ]
+      compare <- compare[!is.na(compare$text), ]
+      print(nrow(compare))
+      output$processed_tweets <- renderTable(compare)
+      write.csv(compare, file = filename)
+    }
+    
     #from https://cran.r-project.org/web/packages/corpus/vignettes/stemmer.html
     spellCheck <- function(term) {
-      # if the term is spelled correctly, leave it as-is
-      if (hunspell_check(term, dict = dictionary("en_US"))) {
+      if (hunspell_check(term, dict = dictionary("en_US"))) { # if the term is spelled correctly, leave it as-is
         return(term)
       }
       
       suggestions <- hunspell::hunspell_suggest(term)[[1]]
       
-      # if hunspell found a suggestion, use the first one
       if (length(suggestions) > 0) {
-        return(suggestions[[length(suggestions)]])
+        return(suggestions[[length(suggestions)]]) # if hunspell found a suggestion, use the last one
       } else {
-        # otherwise, use the original term
-        return(term)
+        return(term) # otherwise, use the original term
       }
     }
     
@@ -129,9 +138,9 @@ shinyServer(
       withProgress(message = 'Retrieving tweets', value = 0, {
         twitter_token <- create_token(app = "MyTwitterAppSP", consumer_key = api_key, consumer_secret = api_secret)
         if(input$retweets) {
-          tweets <- search_tweets(movieQuery, n = 300, include_rts = FALSE, lang = "en")
+          tweets <- search_tweets(movieQuery, n = 500, include_rts = FALSE, lang = "en")
         } else {
-          tweets <- search_tweets(movieQuery, n = 300, include_rts = TRUE, lang = "en")
+          tweets <- search_tweets(movieQuery, n = 500, include_rts = TRUE, lang = "en")
         }
         n <- 10 # Number of times we'll go through the loop
         for (i in 1:n) {
@@ -180,7 +189,7 @@ shinyServer(
       tweets.df$text <- sapply(tweets.df$text, function(row) gsub("( )*e2 [8-9][0-9] [a-zA-Z0-9][a-zA-Z0-9]( )*", "", row))
       tweets.df$text <- sapply(tweets.df$text, function(row) gsub("f0(\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
       tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e0(\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
-      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e[3-6d-f](\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e[3-6d-f](\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )+", "", row))
       #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e6(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
       #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("ed(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
       #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("ef(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
@@ -220,30 +229,37 @@ shinyServer(
       return(tweets)
     }
     
-    spellCorrection <- function(tweets) {
+    removePunctuations <- function(tweets.df) {
+      tweets <- tweets.df
+      tweets$text <- removePunctuation(tweets$text)
+      return(tweets)
+    }
+    
+    spellCorrection <- function(tweets.df) {
       #check for spelling
-      tweets <- unlist(tweets)
+      tweetDeck <- tweets.df
+      tweets <- unlist(tweetDeck$text)
       for (i in 1:length(tweets)) { #for every tweet
         tweet <- gsub("\\s+", " ", str_trim(tweets[i]))
         tw <- strsplit(tweet, "\\s+")
         tw <- unlist(tw)
-        #print(tw)
         if(length(tw) > 0) {
           for (j in 1:length(tw)) { #iterate per word
             #tw[j] <- wordStem(c(tw[j]), language = "english")
             #tw[j] <- spellCheck(tw[j])
-            tw[j] <- gsub("([[:alpha:]])\\1{2,}", "\\2", as.String(tw[j]))
             token <- text_tokens(c(tw[j]), stemmer = "en")
             tw[j] <- (unlist(token))[1]
             tw[j] <- spellCheck(as.String(tw[j]))
           } 
         }
-        tweets[i] <- tw
+        
+        tweets[i] <- paste(tw, collapse = " ")
       }
-      return(tweets)
+      tweetDeck$text <- tweets
+      return(tweetDeck)
     }
     
-    preprocessTweets <- function(tweets.df) {
+    cleanTweets <- function(tweets.df) {
       #to remove unreadable/extra characters
       #tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, "ASCII", "latin1", sub="")) 
       tweets <- tweets.df
@@ -260,12 +276,52 @@ shinyServer(
         corpus[[i]]$content = gsub(":", "", corpus[[i]]$content) #remove RT labels
       }
       
-      #corpus <- tm_map(corpus, content_transformer(tolower)) #case normalize
-      #corpus <- tm_map(corpus, fix.contractions)
-      #corpus <- tm_map(corpus, content_transformer(removePunctuation)) #remove punctuations
-      #corpus <- tm_map(corpus, content_transformer(removeWords), stopwords("english")) #remove stop words
       tweets["text"] <- corpus$content
       return(tweets)
+    }
+    
+    applyPOSTag <- function(tweets.df) {
+      tweets <- tweets.df
+      sent_token_annotator = Maxent_Sent_Token_Annotator()
+      word_token_annotator = Maxent_Word_Token_Annotator()
+      pos_tag_annotator = Maxent_POS_Tag_Annotator()
+      tweets$text <- sapply(tweets$text, function(row) row <- POSTag(row, sent_token_annotator, word_token_annotator, pos_tag_annotator))
+      return(tweets)
+    }
+    
+    POSTag <- function(x, sent_token_annotator, word_token_annotator, pos_tag_annotator) {
+      s <- as.String(x)
+      if(grepl("^\\s*$", s)) return(NA) #if there are no tokens in sentence
+      a2 = NLP::annotate(s, list(sent_token_annotator, word_token_annotator))
+      a3 = NLP::annotate(s, pos_tag_annotator, a2)
+      a3w = subset(a3, type == "word")
+      POStags = sapply(a3w$features, `[[`, "POS")
+      if(length(s[a3w]) == 1) {
+        tags <- data.frame(Tokens = c(s[a3w]), Tags = POStags)
+      } else {
+        tags <- data.frame(Tokens = s[a3w], Tags = POStags) 
+      }
+      tags$Tags_mod = grepl("NN|JJ|VB|RB", tags$Tags)
+      chunk = vector()  
+      chunk[1] = as.numeric(tags$Tags_mod[1])
+      for (i in 2:nrow(tags)) {
+        if(is.na(tags$Tags_mod[i]) || is.null(tags$Tags_mod[i])) return(NA)
+        if(!tags$Tags_mod[i]) {
+          chunk[i] = 0
+        } else if (tags$Tags_mod[i] == tags$Tags_mod[i-1]) {
+          chunk[i] = chunk[i-1]
+        } else {
+          chunk[i] = max(chunk) + 1
+        }
+      }
+      text_chunk <- split(as.character(tags$Tokens), chunk)
+      tag_pattern <- split(as.character(tags$Tags), chunk)
+      names(text_chunk) <- sapply(tag_pattern, function(x) paste(x, collapse = "-"))
+      res = text_chunk[grepl("NN-JJ|NN-VB|VB-JJ|NN.-NN|JJ|NN|VB", names(text_chunk))]
+      res <- unlist(res, use.names=FALSE)
+      res <- paste(res, collapse=" ")
+      gc()
+      return(res) 
     }
     
     readDataSet <- function(filename) {
