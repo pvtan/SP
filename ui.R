@@ -13,8 +13,8 @@ shinyUI(fluidPage(theme = shinytheme("flatly"),
                     c("Yes" = TRUE,
                       "No" = FALSE)),
         radioButtons("preprocess", "Preprocess training data?",
-                     c("Yes" = TRUE,
-                       "No" = FALSE)),
+                     c("No" = FALSE,
+                       "Yes" = TRUE)),
         actionButton("enter", "Enter")
       ),
       mainPanel(

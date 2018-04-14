@@ -88,7 +88,20 @@ shinyServer(
       } else {
         preprocessTweets(tweets.df, "results.csv")
         if(input$preprocess) {
+          tweetDataset <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/syuzhetTrainingData.csv", 
+                                   header=TRUE, 
+                                   sep=",", 
+                                   stringsAsFactors = FALSE)
+          tweets.df <- preprocessTweets(tweetDataset, "preprocessedDataSet.csv")
         } else {
+          tweetDataset <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/trainingData.csv", 
+                                   header=TRUE, 
+                                   sep=",", 
+                                   stringsAsFactors = FALSE)
+          training <- floor(nrow(tweetDataset) * 0.8)
+          useSVMWithoutMatrix(tweetDataset, training)
+          #useSVMWithMatrix(tweetDataset, training)
+          print(training)
         }
         
         #useSVMWithMatrix(df)
@@ -112,10 +125,13 @@ shinyServer(
       cld2Col <- sapply(compare$text, function(row) cld2::detect_language(text = row, plain_text = FALSE))
       compare <- cbind(compare, "cld2Col" = cld2Col)
       compare <- compare[(compare$cld2Col=="en"), ]
+      colnames(compare) <- c("original", "text", "cld2")
       compare <- compare[!is.na(compare$text), ]
+      compare <- compare[, !(colnames(compare) %in% c("cld2"))]
       print(nrow(compare))
       output$processed_tweets <- renderTable(compare)
       write.csv(compare, file = filename)
+      return(compare)
     }
     
     #from https://cran.r-project.org/web/packages/corpus/vignettes/stemmer.html
@@ -138,9 +154,9 @@ shinyServer(
       withProgress(message = 'Retrieving tweets', value = 0, {
         twitter_token <- create_token(app = "MyTwitterAppSP", consumer_key = api_key, consumer_secret = api_secret)
         if(input$retweets) {
-          tweets <- search_tweets(movieQuery, n = 500, include_rts = FALSE, lang = "en")
+          tweets <- search_tweets(movieQuery, n = 300, include_rts = FALSE, lang = "en")
         } else {
-          tweets <- search_tweets(movieQuery, n = 500, include_rts = TRUE, lang = "en")
+          tweets <- search_tweets(movieQuery, n = 300, include_rts = TRUE, lang = "en")
         }
         n <- 10 # Number of times we'll go through the loop
         for (i in 1:n) {
@@ -334,32 +350,36 @@ shinyServer(
       return(dataSet)
     }
     
-    useSVMWithMatrix <- function(df) {
-      train_data <- df[(1:33), ] #this must be 80 20
-      test_data <- df[-(1:33), ]
-      
-      dtMatrix <- create_matrix(df$review, weighting=weightTfIdf)
-      container <- create_container(dtMatrix, df$sentiment, trainSize=1:33, testSize= 34:66, virgin=FALSE)
+    useSVMWithMatrix <- function(df, index) {
+      dtMatrix <- create_matrix(df$text, weighting=weightTfIdf)
+      container <- create_container(dtMatrix, df$b, trainSize=1:index, testSize=(index+1):nrow(df), virgin=FALSE)
       svm_model <- train_model(container, "SVM", kernel="linear", cost=1)
       results <- classify_model(container, svm_model)
-      print(results)
+      start <- index+1
+      end <- nrow(df)
+      print(nrow(results))
+      accuracy <- recall_accuracy(df[(start:end), "b"], results$SVM_LABEL)
+      print(accuracy)
     }
     
-    useSVMWithoutMatrix <- function(df) {
-      train_data <- df[(1:33), ]
-      test_data <- df[-(1:33), ]
+    useSVMWithoutMatrix <- function(df,index) {
+      train_data <- df[(1:index), ] #this must be 80 20
+      test_data <- df[-(1:index), ]
       
-      #svm_model <- svm(
-      #              train_data$sentiment ~ train_data$review, 
-      #              data = train_data,
-      #              kernel = "linear",
-      #              #cross=10,
-      #              cost=10, 
-      #              scale=FALSE)
-      
-      #pred_train <- predict(svm_model, test_data)
-      #print(mean(pred_train==test_data$sentiment))
-      #print(pred_train)
+      svm_model <- svm(
+                    #train_data$text ~ factor(train_data$b), 
+                    b~.,
+                    data = train_data[,2:3],
+                    kernel = "linear",
+                    #cross=10,
+                    cost = 62.5, 
+                    gamma = 0.5,
+                    scale = FALSE)
+      str(train_data)
+      str(test_data)
+      pred_train <- predict(svm_model, test_data[,2:3])
+      print(mean(pred_train==test_data$b))
+      print(pred_train)
       
       #model <- train(review ~ sentiment, data = train_data, method = "svmLinear2")
       #from https://github.com/thomasp85/lime
