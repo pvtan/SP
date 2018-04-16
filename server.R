@@ -1,40 +1,19 @@
-#installed.packages("shiny")
-#install.packages("base64enc")
-#install.packages("twitteR")
-#install.packages("hunspell")
-#install.packages("tm")
-#install.packages("devtools")
-#devtools::install_github("bmschmidt/wordVectors")
-#install.packages("text2vec")
-#install.packages("caret")
-#install.packages("e1071")
-#install.packages("RTextTools")
-#install.packages("psych")
-#install.packages("lime")
-#install.packages("lexicon")
-#install.packages("coreNLP",INSTALL_opts="--no-multiarch")
-
 library(shiny)
 library(base64enc)
-#library(twitteR)
 library(rtweet)
 library(hunspell)
 library(tm)
-#library(wordVectors)
-#library(magrittr)
-#library(text2vec)
 library(caret)
 library(e1071)
 library(lime)
 library(RTextTools)
 library(lexicon)
 library(stringr)
-#library(corpus)
 library(DataCombine)
 library(NLP)
 library(openNLP)
 library(dplyr)
-#library(coreNLP)
+library(cld2)
 source("config.R")
 
 #function to remove contractions in an English-language source
@@ -359,27 +338,45 @@ shinyServer(
       end <- nrow(df)
       print(nrow(results))
       accuracy <- recall_accuracy(df[(start:end), "b"], results$SVM_LABEL)
-      print(accuracy)
+      p1rint(accuracy)
     }
     
     useSVMWithoutMatrix <- function(df,index) {
       train_data <- df[(1:index), ] #this must be 80 20
       test_data <- df[-(1:index), ]
       
-      svm_model <- svm(
-                    #train_data$text ~ factor(train_data$b), 
-                    b~.,
-                    data = train_data[,2:3],
-                    kernel = "linear",
-                    #cross=10,
-                    cost = 62.5, 
-                    gamma = 0.5,
-                    scale = FALSE)
-      str(train_data)
-      str(test_data)
-      pred_train <- predict(svm_model, test_data[,2:3])
-      print(mean(pred_train==test_data$b))
-      print(pred_train)
+      
+      # Create a corpus from our character vector
+      corpus <- Corpus(VectorSource(train_data$text))
+      
+      # Create the document term matrix
+      tdm <- DocumentTermMatrix(corpus, control = list(weighting = function(x) weightTfIdf(x, normalize = FALSE)))
+      
+      train_set <- as.matrix(tdm)
+      
+      # add the classifier column and make it a data frame
+      train_set <- cbind(train_set, train_data$b)
+      colnames(train_set)[ncol(train_set)] <- "y"
+      train_set <- as.data.frame(train_set)
+      train_set$y <- as.factor(train_set$y)
+      
+      example1_model <- train(y ~., data = train_set, method = 'svmLinear3')
+      pred_train <- predict(example1_model, newdata = train_data$text)
+      print(mean(pred_train==train_data$b))
+      
+      #svm_model <- svm(
+      #              #train_data$text ~ factor(train_data$b), 
+      #              b~.,
+      #              data = train_data[,2:3],
+      #              kernel = "linear",
+      #              #cross=10,
+      #              cost = 62.5, 
+      #              gamma = 0.5,
+      #              scale = FALSE)
+      
+      #pred_train <- predict(svm_model, test_data[,2:3])
+      #print(mean(pred_train==test_data$b))
+      #print(pred_train)
       
       #model <- train(review ~ sentiment, data = train_data, method = "svmLinear2")
       #from https://github.com/thomasp85/lime
