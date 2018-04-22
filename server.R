@@ -13,7 +13,8 @@ library(DataCombine)
 library(NLP)
 library(openNLP)
 library(dplyr)
-library(cld2)
+library(wordcloud)
+library(RColorBrewer)
 source("config.R")
 
 #function to remove contractions in an English-language source
@@ -34,7 +35,7 @@ fix.contractions <- function(doc) {
   return(doc)
 }
 
-contractions <- data.frame(word = c("won't", "wont", "dont't", "dont", "'ll", "therell", "'re", "'ve", "I'm", " im ", "'s", "can't", "cant", "didnt", "n't"),
+contractions <- data.frame(word = c("won't", "wont", "don't", "dont", "'ll", "therell", "'re", "'ve", "I'm", " im ", "'s", "can't", "cant", "didnt", "n't"),
                            expansion = c("will not", "will not", "do not", "do not"," will", "there will", " are", " have", "I am", " I am ", "", "can not", "can not", "did not", " not"))
 
 shinyServer(
@@ -65,7 +66,14 @@ shinyServer(
       if(length(tweets.df) == 0) {
         print("There are no tweets to undergo pre-processing.")
       } else {
-        preprocessTweets(tweets.df, "results.csv")
+        withProgress(message = 'Preprocessing tweets', value = 0, {
+          processedTweets <- preprocessTweets(tweets.df, "results.csv")
+          n <- 100 # Number of times we'll go through the loop
+          for (i in 1:n) {
+            incProgress(1/n) # Increment the progress bar, and update the detail text.
+            Sys.sleep(0.1) # Pause for 0.1 seconds to simulate a long computation.
+          }
+        })
         if(input$preprocess) {
           tweetDataset <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/syuzhetTrainingData.csv", 
                                    header=TRUE, 
@@ -73,20 +81,39 @@ shinyServer(
                                    stringsAsFactors = FALSE)
           tweets.df <- preprocessTweets(tweetDataset, "preprocessedDataSet.csv")
         } else {
-          tweetDataset <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/trainingData.csv", 
-                                   header=TRUE, 
-                                   sep=",", 
-                                   stringsAsFactors = FALSE)
-          training <- floor(nrow(tweetDataset) * 0.8)
-          useSVMWithoutMatrix(tweetDataset, training)
-          #useSVMWithMatrix(tweetDataset, training)
-          print(training)
+          svm_model <- readRDS("C:/Users/Paula Tan/Documents/svm_model.rds")
+          load("C:/Users/Paula Tan/Documents/tdm.RData")
+          movie_corpus <- Corpus(VectorSource(processedTweets$text))
+          movie_tdm <- DocumentTermMatrix(movie_corpus, control=list(dictionary = Terms(tdm)))
+          movie_tdm <- as.matrix(movie_tdm)
+          movie_result <- predict(svm_model, newdata = movie_tdm)
+          results <- cbind(processedTweets, 'sentiment' = movie_result)
+          output$processed_tweets <- renderTable(results)
+          createPieChart(movie_result)
+          createWordCloud(processedTweets$text, movie_tdm)
         }
-        
-        #useSVMWithMatrix(df)
-        #useSVMWithoutMatrix(df)
       }
     })
+    
+    createPieChart <- function(movie_result) {
+      labels <- c("Negative", "Neutral", "Positive")
+      # Plot the chart.
+      print(table(movie_result))
+      output$pie <- renderPlot(pie(table(movie_result),labels))
+      output$bar <- renderPlot(barplot(table(movie_result), 
+                                       xlab="Sentiment"))
+    }
+    
+    createWordCloud <- function(raw, m) {
+      v <- sort(rowSums(m),decreasing=TRUE)
+      summary(v)
+      output$cloud <- renderPlot({
+        wordcloud(raw,
+                  max.words = 200,
+                  random.color = TRUE,
+                  random.order = FALSE)
+      })
+    }
     
     preprocessTweets <- function(tweets.df, filename) {
       processedTweets <- tweets.df
@@ -108,7 +135,6 @@ shinyServer(
       compare <- compare[!is.na(compare$text), ]
       compare <- compare[, !(colnames(compare) %in% c("cld2"))]
       print(nrow(compare))
-      output$processed_tweets <- renderTable(compare)
       write.csv(compare, file = filename)
       return(compare)
     }
@@ -133,9 +159,9 @@ shinyServer(
       withProgress(message = 'Retrieving tweets', value = 0, {
         twitter_token <- create_token(app = "MyTwitterAppSP", consumer_key = api_key, consumer_secret = api_secret)
         if(input$retweets) {
-          tweets <- search_tweets(movieQuery, n = 300, include_rts = FALSE, lang = "en")
+          tweets <- search_tweets(movieQuery, n = 500, include_rts = FALSE, lang = "en")
         } else {
-          tweets <- search_tweets(movieQuery, n = 300, include_rts = TRUE, lang = "en")
+          tweets <- search_tweets(movieQuery, n = 500, include_rts = TRUE, lang = "en")
         }
         n <- 10 # Number of times we'll go through the loop
         for (i in 1:n) {
@@ -184,7 +210,7 @@ shinyServer(
       tweets.df$text <- sapply(tweets.df$text, function(row) gsub("( )*e2 [8-9][0-9] [a-zA-Z0-9][a-zA-Z0-9]( )*", "", row))
       tweets.df$text <- sapply(tweets.df$text, function(row) gsub("f0(\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
       tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e0(\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
-      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e[3-6d-f](\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )+", "", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e[3-6d-f](\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
       #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e6(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
       #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("ed(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
       #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("ef(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))

@@ -7,13 +7,11 @@ useSVMWithoutMatrix <- function(df,index) {
   train_data <- df[(1:index), ] #this must be 80 20
   test_data <- df[-(1:index), ]
   
-  # Create a corpus from our character vector
-  corpus <- Corpus(VectorSource(train_data$text))
-  
-  # Create the document term matrix
-  tdm <- DocumentTermMatrix(corpus) #,  control = list(weighting = function(x) weightTfIdf(x, normalize = FALSE)))
-  
+  corpus <- Corpus(VectorSource(train_data$text)) # Create a corpus from our character vector
+  tdm <- DocumentTermMatrix(corpus, control = list(weighting = function(x) weightTf(x))) # Create the document term matrix
+  print(tdm)
   train_set <- as.matrix(tdm)
+  save(tdm, file="tdm.RData")
   
   # add the classifier column and make it a data frame
   train_set <- cbind(train_set, train_data$b)
@@ -43,9 +41,10 @@ useSVMWithoutMatrix <- function(df,index) {
   model_toy_result <- predict(example1_model, newdata = train_set)
   print(mean(model_toy_result==train_data$b))
   train_data$b <- as.factor(train_data$b)
-  print(confusionMatrix(model_toy_result, train_data$b))
+  #print(confusionMatrix(model_toy_result, train_data$b))
   model_toy_result <- predict(example1_model, newdata = test_tdm)
   print(mean(model_toy_result==test_data$b))
+  saveRDS(example1_model, file="svm_model.rds")
 }
 
 tweetDataset <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/trainingData.csv", 

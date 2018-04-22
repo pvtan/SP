@@ -18,8 +18,10 @@ shinyUI(fluidPage(theme = shinytheme("flatly"),
       ),
       mainPanel(
         h1("Tweet deck panel"),
-        tableOutput("processed_tweets"),
-        plotOutput("pie")
+        plotOutput("bar"),
+        plotOutput("pie"),
+        plotOutput("cloud"),
+        tableOutput("processed_tweets")
       )
     )
   )

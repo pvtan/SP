@@ -4,7 +4,6 @@
 #devtools::install_github("IndicoDataSolutions/IndicoIo-R")
 
 library(rtweet)
-library(indicoio)
 library(syuzhet)
 source("SP/config.R")
 
