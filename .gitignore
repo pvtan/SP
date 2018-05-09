@@ -35,3 +35,5 @@ vignettes/*.pdf
 *.txt
 *.bin
 *.csv
+
+dict/stanford-corenlp-full-2018-02-27
