@@ -50,7 +50,7 @@ shinyServer(
       tweetsRetrieved <- retrieveTweets(movieQuery)
       tweets.df <- data.frame(lapply(tweetsRetrieved, as.character), stringsAsFactors=FALSE)
       #remove movie in screenName
-      tweets.df <- removeMovieFoundInScreenname(movie, tweets.df)
+      tweets.df <- removeMovieFoundInScreenname(substring(movieQuery, 2, nchar(movieQuery)), tweets.df)
       #write to file
       write.csv(tweets.df, file="unprocessedTweets.csv")
       
@@ -59,7 +59,7 @@ shinyServer(
         print("There are no tweets to undergo pre-processing.")
       } else {
         if(input$preprocess) {
-          tweetDataset <- read.csv("C:/Users/Paula Tan/Documents/SP/syuzhetTrainingData1.csv", 
+          tweetDataset <- read.csv("syuzhetTrainingData1.csv", 
                                    header=TRUE, 
                                    sep=",", 
                                    stringsAsFactors = FALSE)
@@ -74,8 +74,8 @@ shinyServer(
             }
           })
           
-          load("C:/Users/Paula Tan/Documents/SP/dtMatrix.RData")
-          load("C:/Users/Paula Tan/Documents/SP/svmTrain.RData")
+          load("dtMatrix.RData")
+          load("svmTrain.RData")
           matrix <- RTextTools::create_matrix(processedTweets$text, originalMatrix=dtMatrix)
           print(matrix)
           processedTweets$b <- rep(c(1), times=nrow(processedTweets))
@@ -235,7 +235,7 @@ shinyServer(
     
     expandAcronyms <- function(tweets.df) {
       #expand acronyms
-      slang <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/noslang.csv", header=TRUE, sep=",", stringsAsFactors = FALSE)
+      slang <- read.csv("dict/noslang.csv", header=TRUE, sep=",", stringsAsFactors = FALSE)
       print(nrow(tweets.df))
       tweetData <- tweets.df
       tweets <- unlist(tweetData$text)
