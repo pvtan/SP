@@ -19,46 +19,38 @@ source("config.R")
 
 #function to remove contractions in an English-language source
 #function from https://github.com/mkfs/misc-text-mining/blob/master/R/wordcloud.R
-fix.contractions <- function(doc) {
-  doc <- gsub("won't", "will not", doc) # "won't" is a special case as it does not expand to "wo not"
-  doc <- gsub("wont", "will not", doc)
-  doc <- gsub("dont't", "do not", doc)
-  doc <- gsub("dont", "do not", doc)
-  doc <- gsub("n't", " not", doc)
-  doc <- gsub("'ll", " will", doc)
-  doc <- gsub("therell", "there will", doc)
-  doc <- gsub("'re", " are", doc)
-  doc <- gsub("'ve", " have", doc)
-  doc <- gsub("'m", " am", doc)
-  doc <- gsub(" im", " I am", doc)
-  doc <- gsub("'s", "", doc) # 's could be 'is' or could be possessive: it has no expansion
-  return(doc)
-}
-
 contractions <- data.frame(word = c("won't", "wont", "don't", "dont", "'ll", "therell", "'re", "'ve", "I'm", " im ", "'s", "can't", "cant", "didnt", "n't"),
                            expansion = c("will not", "will not", "do not", "do not"," will", "there will", " are", " have", "I am", " I am ", "", "can not", "can not", "did not", " not"))
 
 shinyServer(
   function(input, output) {
     observeEvent(input$enter, {
-      #spell checker
-      tw <- strsplit(input$query, "\\s+")
-      tw <- unlist(tw)
-      for(i in 1:length(tw)) {
-        tw[i] <- spellCheck(tw[i])
+      #check if hastag or title
+      if(substring(input$query, 1, 1) == "#") { #if hashtag
+        movieHashtag <- input$query
+        movieQuery <- paste0(movieHashtag)
+        print(paste0("Searching for ", movieQuery))
+      } else { #if title
+        tw <- strsplit(input$query, "\\s+")
+        tw <- unlist(tw)
+        movie <- paste(tw, collapse="")
+        movieHashtag <- paste0("#", movie, collapse="")
+        movieQuery <- paste0(input$query, " OR ", movieHashtag)
+        print(paste0("Searching for ", movieQuery))
       }
-      movie <- paste(tw, collapse=" ") 
-      movieHashtag <- paste0("#", paste(tw, collapse="")) 
-      movieQuery <- paste0(movie, " OR ", movieHashtag)
       
-      print(paste0("Searching for ", movieQuery))
-       
-      tweetsRetrieved <- retrieveTweets(movie)
+      #spell checker
+      #tw <- strsplit(input$query, "\\s+")
+      #tw <- unlist(tw)
+      #for(i in 1:length(tw)) {
+      #  tw[i] <- spellCheck(tw[i])
+      #}
+      #movie <- paste(tw, collapse=" ") 
+      
+      tweetsRetrieved <- retrieveTweets(movieQuery)
       tweets.df <- data.frame(lapply(tweetsRetrieved, as.character), stringsAsFactors=FALSE)
-      
       #remove movie in screenName
       tweets.df <- removeMovieFoundInScreenname(movie, tweets.df)
-      
       #write to file
       write.csv(tweets.df, file="unprocessedTweets.csv")
       
@@ -66,31 +58,48 @@ shinyServer(
       if(length(tweets.df) == 0) {
         print("There are no tweets to undergo pre-processing.")
       } else {
-        withProgress(message = 'Preprocessing tweets', value = 0, {
-          processedTweets <- preprocessTweets(tweets.df, "results.csv")
-          n <- 100 # Number of times we'll go through the loop
-          for (i in 1:n) {
-            incProgress(1/n) # Increment the progress bar, and update the detail text.
-            Sys.sleep(0.1) # Pause for 0.1 seconds to simulate a long computation.
-          }
-        })
         if(input$preprocess) {
-          tweetDataset <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/syuzhetTrainingData.csv", 
+          tweetDataset <- read.csv("C:/Users/Paula Tan/Documents/SP/syuzhetTrainingData1.csv", 
                                    header=TRUE, 
                                    sep=",", 
                                    stringsAsFactors = FALSE)
-          tweets.df <- preprocessTweets(tweetDataset, "preprocessedDataSet.csv")
+          tweets.df <- preprocessTweets(tweetDataset, "preprocessedDataSet1.csv")
         } else {
-          svm_model <- readRDS("C:/Users/Paula Tan/Documents/svm_model.rds")
-          load("C:/Users/Paula Tan/Documents/tdm.RData")
-          movie_corpus <- Corpus(VectorSource(processedTweets$text))
-          movie_tdm <- DocumentTermMatrix(movie_corpus, control=list(dictionary = Terms(tdm)))
-          movie_tdm <- as.matrix(movie_tdm)
-          movie_result <- predict(svm_model, newdata = movie_tdm)
-          results <- cbind(processedTweets, 'sentiment' = movie_result)
+          withProgress(message = 'Preprocessing tweets', value = 0, {
+            processedTweets <- preprocessTweets(tweets.df, "results.csv")
+            n <- 100 # Number of times we'll go through the loop
+            for (i in 1:n) {
+              incProgress(1/n) # Increment the progress bar, and update the detail text.
+              Sys.sleep(0.1) # Pause for 0.1 seconds to simulate a long computation.
+            }
+          })
+          
+          load("C:/Users/Paula Tan/Documents/SP/dtMatrix.RData")
+          load("C:/Users/Paula Tan/Documents/SP/svmTrain.RData")
+          matrix <- RTextTools::create_matrix(processedTweets$text, originalMatrix=dtMatrix)
+          print(matrix)
+          processedTweets$b <- rep(c(1), times=nrow(processedTweets))
+          cont <- RTextTools::create_container(matrix, 
+                                               processedTweets$b,
+                                               testSize = 1:nrow(processedTweets), 
+                                               virgin = TRUE)
+          print(example1_model)
+          results <- classify_model(cont, example1_model)
+          
+          #svm_model <- readRDS("C:/Users/Paula Tan/Documents/svm_model.rds")
+          #load("C:/Users/Paula Tan/Documents/tdm.RData")
+          #movie_corpus <- Corpus(VectorSource(processedTweets$text))
+          #to_save <- processedTweets$text
+          #movie_tdm <- DocumentTermMatrix(movie_corpus, control=list(dictionary = Terms(tdm)))
+          #movie_tdm <- as.matrix(movie_tdm)
+          #movie_result <- predict(svm_model, newdata = movie_tdm)
+          results <- cbind(processedTweets, 'sentiment' = results[, "SVM_LABEL"])
+          results <- results[, -which(names(results) %in% c("b"))]
           output$processed_tweets <- renderTable(results)
-          createPieChart(movie_result)
-          createWordCloud(processedTweets$text, movie_tdm)
+          
+          createPieChart(results$sentiment)
+          matrix <- as.matrix(matrix)
+          createWordCloud(processedTweets$text, matrix)
         }
       }
     })
@@ -110,8 +119,11 @@ shinyServer(
       output$cloud <- renderPlot({
         wordcloud(raw,
                   max.words = 200,
-                  random.color = TRUE,
-                  random.order = FALSE)
+                  scale=c(5,0.5), 
+                  random.order=FALSE, 
+                  rot.per=0.35, 
+                  use.r.layout=FALSE, 
+                  colors=brewer.pal(8, "Dark2"))
       })
     }
     
@@ -120,7 +132,7 @@ shinyServer(
       processedTweets <- cleanTweets(processedTweets)
       processedTweets <- fixContractions(processedTweets)
       processedTweets <- decodeEmojis(processedTweets) 
-      processedTweets <- removePunctuations(processedTweets)
+      processedTweets <- removePunctuationsAndNumbers(processedTweets)
       processedTweets <- expandAcronyms(processedTweets) 
       processedTweets <- fixContractions(processedTweets)
       processedTweets <- shortenLongWords(processedTweets)
@@ -135,7 +147,8 @@ shinyServer(
       compare <- compare[!is.na(compare$text), ]
       compare <- compare[, !(colnames(compare) %in% c("cld2"))]
       print(nrow(compare))
-      write.csv(compare, file = filename)
+      write.csv(compare, file = paste0("C:/Users/Paula Tan/Documents/SP/", filename, collapse = ""))
+      print("file written")
       return(compare)
     }
     
@@ -186,10 +199,13 @@ shinyServer(
     }
     
     fixContractions <- function(tweets.df) {
-      removedContractions <- FindReplace(data = tweets.df, Var = "text", 
-                  replaceData = contractions,
-                  from = "word", to = "expansion", 
-                  exact = FALSE) #DataCombine
+      #removedContractions <- FindReplace(data = tweets.df, Var = "text", 
+      #            replaceData = contractions,
+      #            from = "word", to = "expansion", 
+      #            exact = FALSE) #DataCombine
+      removedContractions <- tweets.df
+      removedContractions$text <- textclean::replace_contraction(tweets.df$text)
+      
       return(removedContractions)
     }
     
@@ -210,7 +226,7 @@ shinyServer(
       tweets.df$text <- sapply(tweets.df$text, function(row) gsub("( )*e2 [8-9][0-9] [a-zA-Z0-9][a-zA-Z0-9]( )*", "", row))
       tweets.df$text <- sapply(tweets.df$text, function(row) gsub("f0(\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
       tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e0(\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
-      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e[3-6d-f](\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("( )+e[3-6d-f](\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
       #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e6(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
       #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("ed(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
       #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("ef(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
@@ -250,9 +266,11 @@ shinyServer(
       return(tweets)
     }
     
-    removePunctuations <- function(tweets.df) {
+    removePunctuationsAndNumbers <- function(tweets.df) {
       tweets <- tweets.df
       tweets$text <- removePunctuation(tweets$text)
+      tweets$text <- removeNumbers(tweets$text)
+      tweets$text <- sapply(tweets$text, function(row) gsub("( )+[a-zA-Z]{1}( )+", " ", row))
       return(tweets)
     }
     
@@ -323,6 +341,7 @@ shinyServer(
         tags <- data.frame(Tokens = s[a3w], Tags = POStags) 
       }
       tags$Tags_mod = grepl("NN|JJ|VB|RB", tags$Tags)
+      #tags$Tags_mod = grepl("JJ|VB|RB", tags$Tags)
       chunk = vector()  
       chunk[1] = as.numeric(tags$Tags_mod[1])
       for (i in 2:nrow(tags)) {
@@ -339,6 +358,7 @@ shinyServer(
       tag_pattern <- split(as.character(tags$Tags), chunk)
       names(text_chunk) <- sapply(tag_pattern, function(x) paste(x, collapse = "-"))
       res = text_chunk[grepl("NN-JJ|NN-VB|VB-JJ|NN.-NN|JJ|NN|VB", names(text_chunk))]
+      #res = text_chunk[grepl("VB-JJ|JJ|VB", names(text_chunk))]
       res <- unlist(res, use.names=FALSE)
       res <- paste(res, collapse=" ")
       gc()
@@ -353,76 +373,6 @@ shinyServer(
       dataSet$sentiment <- as.factor(dataSet$sentiment)
       
       return(dataSet)
-    }
-    
-    useSVMWithMatrix <- function(df, index) {
-      dtMatrix <- create_matrix(df$text, weighting=weightTfIdf)
-      container <- create_container(dtMatrix, df$b, trainSize=1:index, testSize=(index+1):nrow(df), virgin=FALSE)
-      svm_model <- train_model(container, "SVM", kernel="linear", cost=1)
-      results <- classify_model(container, svm_model)
-      start <- index+1
-      end <- nrow(df)
-      print(nrow(results))
-      accuracy <- recall_accuracy(df[(start:end), "b"], results$SVM_LABEL)
-      p1rint(accuracy)
-    }
-    
-    useSVMWithoutMatrix <- function(df,index) {
-      train_data <- df[(1:index), ] #this must be 80 20
-      test_data <- df[-(1:index), ]
-      
-      
-      # Create a corpus from our character vector
-      corpus <- Corpus(VectorSource(train_data$text))
-      
-      # Create the document term matrix
-      tdm <- DocumentTermMatrix(corpus, control = list(weighting = function(x) weightTfIdf(x, normalize = FALSE)))
-      
-      train_set <- as.matrix(tdm)
-      
-      # add the classifier column and make it a data frame
-      train_set <- cbind(train_set, train_data$b)
-      colnames(train_set)[ncol(train_set)] <- "y"
-      train_set <- as.data.frame(train_set)
-      train_set$y <- as.factor(train_set$y)
-      
-      example1_model <- train(y ~., data = train_set, method = 'svmLinear3')
-      pred_train <- predict(example1_model, newdata = train_data$text)
-      print(mean(pred_train==train_data$b))
-      
-      #svm_model <- svm(
-      #              #train_data$text ~ factor(train_data$b), 
-      #              b~.,
-      #              data = train_data[,2:3],
-      #              kernel = "linear",
-      #              #cross=10,
-      #              cost = 62.5, 
-      #              gamma = 0.5,
-      #              scale = FALSE)
-      
-      #pred_train <- predict(svm_model, test_data[,2:3])
-      #print(mean(pred_train==test_data$b))
-      #print(pred_train)
-      
-      #model <- train(review ~ sentiment, data = train_data, method = "svmLinear2")
-      #from https://github.com/thomasp85/lime
-      #explainer <- lime(train_data, model)
-      #explanation <- explain(test_data, explainer, n_labels = 3, n_features = 1)
-      #head(explanation)
-      #plot_features(explanation)
-      
-      #tab <- table(pred=pred_train, true=test_data$sentiment)
-      #results <- confusionMatrix(tab)
-      #results <- as.matrix(results)
-      #print(results)
-      #x <- c(
-      #  sum(results["negative", "negative"], results["negative", "neutral"], results["negative", "positive"]),
-      #  sum(results["neutral", "negative"], results["neutral", "neutral"], results["neutral", "positive"]),
-      #  sum(results["positive", "negative"], results["positive", "neutral"], results["positive", "positive"])
-      #)
-      #labels <- c("Negative", "Neutral", "Positive")
-      # Plot the chart.
-      #output$pie <- renderPlot(pie(x,labels))
     }
   }
 )

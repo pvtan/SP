@@ -4,6 +4,7 @@ library(shinythemes)
 
 shinyUI(fluidPage(theme = shinytheme("flatly"),
     useShinyjs(),
+    titlePanel("MoviSenti"),
     sidebarLayout(
       sidebarPanel(
         h2("Input panel"),
