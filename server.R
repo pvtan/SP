@@ -1,79 +1,56 @@
-#installed.packages("shiny")
-#install.packages("base64enc")
-#install.packages("twitteR")
-#install.packages("hunspell")
-#install.packages("tm")
-#install.packages("devtools")
-#devtools::install_github("bmschmidt/wordVectors")
-#install.packages("text2vec")
-#install.packages("caret")
-#install.packages("e1071")
-#install.packages("RTextTools")
-#install.packages("psych")
-#install.packages("lime")
-#install.packages("lexicon")
-
 library(shiny)
 library(base64enc)
-#library(twitteR)
 library(rtweet)
 library(hunspell)
 library(tm)
-#library(wordVectors)
-#library(magrittr)
-#library(text2vec)
 library(caret)
 library(e1071)
 library(lime)
 library(RTextTools)
 library(lexicon)
 library(stringr)
-library(corpus)
-library(DT)
+library(DataCombine)
+library(NLP)
+library(openNLP)
+library(dplyr)
+library(wordcloud)
+library(RColorBrewer)
 source("config.R")
 
 #function to remove contractions in an English-language source
 #function from https://github.com/mkfs/misc-text-mining/blob/master/R/wordcloud.R
-fix.contractions <- function(doc) {
-  doc <- gsub("won't", "will not", doc) # "won't" is a special case as it does not expand to "wo not"
-  doc <- gsub("wont", "will not", doc)
-  doc <- gsub("dont't", "do not", doc)
-  doc <- gsub("dont", "do not", doc)
-  doc <- gsub("n't", " not", doc)
-  doc <- gsub("'ll", " will", doc)
-  doc <- gsub("therell", "there will", doc)
-  doc <- gsub("'re", " are", doc)
-  doc <- gsub("'ve", " have", doc)
-  doc <- gsub("'m", " am", doc)
-  doc <- gsub(" im", " I am", doc)
-  doc <- gsub("'s", "", doc) # 's could be 'is' or could be possessive: it has no expansion
-  return(doc)
-}
+contractions <- data.frame(word = c("won't", "wont", "don't", "dont", "'ll", "therell", "'re", "'ve", "I'm", " im ", "'s", "can't", "cant", "didnt", "n't"),
+                           expansion = c("will not", "will not", "do not", "do not"," will", "there will", " are", " have", "I am", " I am ", "", "can not", "can not", "did not", " not"))
 
 shinyServer(
   function(input, output) {
     observeEvent(input$enter, {
-      data(hash_sentiment_sentiword)
-      print(hash_sentiment_sentiword[1:5,])
-      #spell checker
-      
-      tw <- strsplit(input$query, "\\s+")
-      tw <- unlist(tw)
-      for(i in 1:length(tw)) {
-        tw[i] <- spellCheck(tw[i])
+      #check if hastag or title
+      if(substring(input$query, 1, 1) == "#") { #if hashtag
+        movieHashtag <- input$query
+        movieQuery <- paste0(movieHashtag)
+        print(paste0("Searching for ", movieQuery))
+      } else { #if title
+        tw <- strsplit(input$query, "\\s+")
+        tw <- unlist(tw)
+        movie <- paste(tw, collapse="")
+        movieHashtag <- paste0("#", movie, collapse="")
+        movieQuery <- paste0(input$query, " OR ", movieHashtag)
+        print(paste0("Searching for ", movieQuery))
       }
-      movie <- paste(tw, collapse=" ") 
-      movieHashtag <- paste0("#", paste(tw, collapse="")) 
-      movieQuery <- paste0(movie, " OR ", movieHashtag)
       
-      print(paste0("Searching for ", movieQuery))
-       
-      tweetsRetrieved <- retrieveTweets(movie)
+      #spell checker
+      #tw <- strsplit(input$query, "\\s+")
+      #tw <- unlist(tw)
+      #for(i in 1:length(tw)) {
+      #  tw[i] <- spellCheck(tw[i])
+      #}
+      #movie <- paste(tw, collapse=" ") 
+      
+      tweetsRetrieved <- retrieveTweets(movieQuery)
       tweets.df <- data.frame(lapply(tweetsRetrieved, as.character), stringsAsFactors=FALSE)
-      
       #remove movie in screenName
       tweets.df <- removeMovieFoundInScreenname(movie, tweets.df)
-      
       #write to file
       write.csv(tweets.df, file="unprocessedTweets.csv")
       
@@ -81,33 +58,112 @@ shinyServer(
       if(length(tweets.df) == 0) {
         print("There are no tweets to undergo pre-processing.")
       } else {
-        processedTweets <- preprocessTweets(tweets.df)
-        compare <- cbind(tweets.df["text"], processedTweets)
-        output$processed_tweets <- renderTable(compare)
-        write.csv(compare, file="results.csv")
-        
-        #df <- readDataSet("tweets.csv")
-        
-        #useSVMWithMatrix(df)
-        #useSVMWithoutMatrix(df)
+        if(input$preprocess) {
+          tweetDataset <- read.csv("C:/Users/Paula Tan/Documents/SP/syuzhetTrainingData1.csv", 
+                                   header=TRUE, 
+                                   sep=",", 
+                                   stringsAsFactors = FALSE)
+          tweets.df <- preprocessTweets(tweetDataset, "preprocessedDataSet1.csv")
+        } else {
+          withProgress(message = 'Preprocessing tweets', value = 0, {
+            processedTweets <- preprocessTweets(tweets.df, "results.csv")
+            n <- 100 # Number of times we'll go through the loop
+            for (i in 1:n) {
+              incProgress(1/n) # Increment the progress bar, and update the detail text.
+              Sys.sleep(0.1) # Pause for 0.1 seconds to simulate a long computation.
+            }
+          })
+          
+          load("C:/Users/Paula Tan/Documents/SP/dtMatrix.RData")
+          load("C:/Users/Paula Tan/Documents/SP/svmTrain.RData")
+          matrix <- RTextTools::create_matrix(processedTweets$text, originalMatrix=dtMatrix)
+          print(matrix)
+          processedTweets$b <- rep(c(1), times=nrow(processedTweets))
+          cont <- RTextTools::create_container(matrix, 
+                                               processedTweets$b,
+                                               testSize = 1:nrow(processedTweets), 
+                                               virgin = TRUE)
+          print(example1_model)
+          results <- classify_model(cont, example1_model)
+          
+          #svm_model <- readRDS("C:/Users/Paula Tan/Documents/svm_model.rds")
+          #load("C:/Users/Paula Tan/Documents/tdm.RData")
+          #movie_corpus <- Corpus(VectorSource(processedTweets$text))
+          #to_save <- processedTweets$text
+          #movie_tdm <- DocumentTermMatrix(movie_corpus, control=list(dictionary = Terms(tdm)))
+          #movie_tdm <- as.matrix(movie_tdm)
+          #movie_result <- predict(svm_model, newdata = movie_tdm)
+          results <- cbind(processedTweets, 'sentiment' = results[, "SVM_LABEL"])
+          results <- results[, -which(names(results) %in% c("b"))]
+          output$processed_tweets <- renderTable(results)
+          
+          createPieChart(results$sentiment)
+          matrix <- as.matrix(matrix)
+          createWordCloud(processedTweets$text, matrix)
+        }
       }
     })
     
+    createPieChart <- function(movie_result) {
+      labels <- c("Negative", "Neutral", "Positive")
+      # Plot the chart.
+      print(table(movie_result))
+      output$pie <- renderPlot(pie(table(movie_result),labels))
+      output$bar <- renderPlot(barplot(table(movie_result), 
+                                       xlab="Sentiment"))
+    }
+    
+    createWordCloud <- function(raw, m) {
+      v <- sort(rowSums(m),decreasing=TRUE)
+      summary(v)
+      output$cloud <- renderPlot({
+        wordcloud(raw,
+                  max.words = 200,
+                  scale=c(5,0.5), 
+                  random.order=FALSE, 
+                  rot.per=0.35, 
+                  use.r.layout=FALSE, 
+                  colors=brewer.pal(8, "Dark2"))
+      })
+    }
+    
+    preprocessTweets <- function(tweets.df, filename) {
+      processedTweets <- tweets.df
+      processedTweets <- cleanTweets(processedTweets)
+      processedTweets <- fixContractions(processedTweets)
+      processedTweets <- decodeEmojis(processedTweets) 
+      processedTweets <- removePunctuationsAndNumbers(processedTweets)
+      processedTweets <- expandAcronyms(processedTweets) 
+      processedTweets <- fixContractions(processedTweets)
+      processedTweets <- shortenLongWords(processedTweets)
+      processedTweets <- applyPOSTag(processedTweets)
+      #processedTweets <- spellCorrection(processedTweets)
+      compare <- cbind("orig" = tweets.df["text"], "text" = processedTweets["text"])
+      compare <- compare[!is.na(compare$text), ]
+      cld2Col <- sapply(compare$text, function(row) cld2::detect_language(text = row, plain_text = FALSE))
+      compare <- cbind(compare, "cld2Col" = cld2Col)
+      compare <- compare[(compare$cld2Col=="en"), ]
+      colnames(compare) <- c("original", "text", "cld2")
+      compare <- compare[!is.na(compare$text), ]
+      compare <- compare[, !(colnames(compare) %in% c("cld2"))]
+      print(nrow(compare))
+      write.csv(compare, file = paste0("C:/Users/Paula Tan/Documents/SP/", filename, collapse = ""))
+      print("file written")
+      return(compare)
+    }
+    
     #from https://cran.r-project.org/web/packages/corpus/vignettes/stemmer.html
     spellCheck <- function(term) {
-      # if the term is spelled correctly, leave it as-is
-      if (hunspell_check(term, dict = dictionary("en_US"))) {
+      if (hunspell_check(term, dict = dictionary("en_US"))) { # if the term is spelled correctly, leave it as-is
         return(term)
       }
       
       suggestions <- hunspell::hunspell_suggest(term)[[1]]
       
-      # if hunspell found a suggestion, use the first one
       if (length(suggestions) > 0) {
-        return(suggestions[[length(suggestions)]])
+        return(suggestions[[length(suggestions)]]) # if hunspell found a suggestion, use the last one
       } else {
-        # otherwise, use the original term
-        return(term)
+        return(term) # otherwise, use the original term
       }
     }
     
@@ -116,9 +172,9 @@ shinyServer(
       withProgress(message = 'Retrieving tweets', value = 0, {
         twitter_token <- create_token(app = "MyTwitterAppSP", consumer_key = api_key, consumer_secret = api_secret)
         if(input$retweets) {
-          tweets <- search_tweets(movieQuery, n = 300, include_rts = FALSE, lang = "en")
+          tweets <- search_tweets(movieQuery, n = 500, include_rts = FALSE, lang = "en")
         } else {
-          tweets <- search_tweets(movieQuery, n = 300, include_rts = TRUE, lang = "en")
+          tweets <- search_tweets(movieQuery, n = 500, include_rts = TRUE, lang = "en")
         }
         n <- 10 # Number of times we'll go through the loop
         for (i in 1:n) {
@@ -142,11 +198,111 @@ shinyServer(
       return(tweets)
     }
     
-    preprocessTweets <- function(tweets.df) {
-      #to remove emojis
-      tweets.df["text"] <- sapply(tweets.df["text"],
-                                  function(row) iconv(row, "latin1", "ASCII", sub="")) 
-      tweet_vector <- unlist(tweets.df["text"], use.names=FALSE)
+    fixContractions <- function(tweets.df) {
+      #removedContractions <- FindReplace(data = tweets.df, Var = "text", 
+      #            replaceData = contractions,
+      #            from = "word", to = "expansion", 
+      #            exact = FALSE) #DataCombine
+      removedContractions <- tweets.df
+      removedContractions$text <- textclean::replace_contraction(tweets.df$text)
+      
+      return(removedContractions)
+    }
+    
+    decodeEmojis <- function(tweets.df) {
+      #from https://raw.githubusercontent.com/today-is-a-good-day/Emoticons/master/emDict.csv
+      emoticons <- read.csv("dict/newEmDict.csv", header = T)
+      tweets.df$text <- sapply(tweets.df$text, function(row) iconv(row, from = "", to = "ASCII", sub = "byte"))
+      tweets.df <- FindReplace(data = tweets.df, Var = "text", 
+                               replaceData = emoticons,
+                               from = "R_Encoding", to = "Description", 
+                               exact = FALSE) #DataCombine
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub(">", "", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("<", " ", row))
+      tweets.df <- FindReplace(data = tweets.df, Var = "text", 
+                               replaceData = emoticons,
+                               from = "Bytes", to = "Description", 
+                               exact = FALSE) #DataCombine
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("( )*e2 [8-9][0-9] [a-zA-Z0-9][a-zA-Z0-9]( )*", "", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("f0(\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e0(\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
+      tweets.df$text <- sapply(tweets.df$text, function(row) gsub("( )+e[3-6d-f](\\s[a-zA-Z0-9][a-zA-Z0-9]){2, }( )*", "", row))
+      #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("e6(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
+      #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("ed(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
+      #tweets.df$text <- sapply(tweets.df$text, function(row) gsub("ef(\\s[a-zA-Z0-9][a-zA-Z0-9]){1, }", "", row))
+      return(tweets.df)
+    }
+    
+    expandAcronyms <- function(tweets.df) {
+      #expand acronyms
+      slang <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/noslang.csv", header=TRUE, sep=",", stringsAsFactors = FALSE)
+      print(nrow(tweets.df))
+      tweetData <- tweets.df
+      tweets <- unlist(tweetData$text)
+      for (i in 1:length(tweets)) { #for every tweet
+        tw <- strsplit(tweets[i], "\\s+")
+        tw <- unlist(tw)
+        loop <- length(tw)
+        expTweet <- ""
+        for (j in 1:loop) { #iterate per word
+          tw[j] <- tolower(tw[j])
+          replacement <- slang[slang$x==tw[j], "expansion"]
+          if(!is.na(replacement[1])) {
+            tw[j] <- replacement[1]
+            expTweet <- paste0(expTweet, " ", replacement[1])
+          } else {
+            expTweet <- paste0(expTweet, " ", as.String(tw[j]))
+          }
+        }
+        tweets[i] <- expTweet
+      }
+      tweetData$text <- tweets
+      return(tweetData)
+    }
+    
+    shortenLongWords <- function(tweets.df) {
+      tweets <- tweets.df
+      tweets$text <- sapply(tweets$text, function(row) gsub("([[:alpha:]])\\1+", "\\1\\1", row))
+      return(tweets)
+    }
+    
+    removePunctuationsAndNumbers <- function(tweets.df) {
+      tweets <- tweets.df
+      tweets$text <- removePunctuation(tweets$text)
+      tweets$text <- removeNumbers(tweets$text)
+      tweets$text <- sapply(tweets$text, function(row) gsub("( )+[a-zA-Z]{1}( )+", " ", row))
+      return(tweets)
+    }
+    
+    spellCorrection <- function(tweets.df) {
+      #check for spelling
+      tweetDeck <- tweets.df
+      tweets <- unlist(tweetDeck$text)
+      for (i in 1:length(tweets)) { #for every tweet
+        tweet <- gsub("\\s+", " ", str_trim(tweets[i]))
+        tw <- strsplit(tweet, "\\s+")
+        tw <- unlist(tw)
+        if(length(tw) > 0) {
+          for (j in 1:length(tw)) { #iterate per word
+            #tw[j] <- wordStem(c(tw[j]), language = "english")
+            #tw[j] <- spellCheck(tw[j])
+            token <- text_tokens(c(tw[j]), stemmer = "en")
+            tw[j] <- (unlist(token))[1]
+            tw[j] <- spellCheck(as.String(tw[j]))
+          } 
+        }
+        
+        tweets[i] <- paste(tw, collapse = " ")
+      }
+      tweetDeck$text <- tweets
+      return(tweetDeck)
+    }
+    
+    cleanTweets <- function(tweets.df) {
+      #to remove unreadable/extra characters
+      #tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, "ASCII", "latin1", sub="")) 
+      tweets <- tweets.df
+      tweet_vector <- unlist(tweets$text, use.names=FALSE)
       corpus <- Corpus(VectorSource(tweet_vector))
       
       for (i in 1:length(corpus$content)) {
@@ -155,52 +311,58 @@ shinyServer(
         corpus[[i]]$content = gsub("@\\w+", "", corpus[[i]]$content) #remove handles
         corpus[[i]]$content = gsub("#\\w+", "", corpus[[i]]$content) #remove hashtags
         corpus[[i]]$content = gsub("http.+", "", corpus[[i]]$content) #remove links
-        corpus[[i]]$content = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", "", corpus[[i]]$content)
-        corpus[[i]]$content = gsub("RT", "", corpus[[i]]$content) #remove RT labels
+        #corpus[[i]]$content = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", "", corpus[[i]]$content)
+        corpus[[i]]$content = gsub(":", "", corpus[[i]]$content) #remove RT labels
       }
       
-      #expand acronyms
-      print(length(corpus$content))
-      for (i in 1:length(corpus$content)) { #for every tweet
-        tw <- strsplit(corpus[[i]]$content, "\\s+")
-        tw <- unlist(tw)
-        loop <- length(tw)
-        for (j in 1:loop) { #iterate per word
-          tw[j] <- tolower(tw[j])
-          replacement <- slang[slang$x==tw[j], "expansion"]
-          if(!is.na(replacement[1])) {
-            tw[j] <- replacement[1]
-          }
+      tweets["text"] <- corpus$content
+      return(tweets)
+    }
+    
+    applyPOSTag <- function(tweets.df) {
+      tweets <- tweets.df
+      sent_token_annotator = Maxent_Sent_Token_Annotator()
+      word_token_annotator = Maxent_Word_Token_Annotator()
+      pos_tag_annotator = Maxent_POS_Tag_Annotator()
+      tweets$text <- sapply(tweets$text, function(row) row <- POSTag(row, sent_token_annotator, word_token_annotator, pos_tag_annotator))
+      return(tweets)
+    }
+    
+    POSTag <- function(x, sent_token_annotator, word_token_annotator, pos_tag_annotator) {
+      s <- as.String(x)
+      if(grepl("^\\s*$", s)) return(NA) #if there are no tokens in sentence
+      a2 = NLP::annotate(s, list(sent_token_annotator, word_token_annotator))
+      a3 = NLP::annotate(s, pos_tag_annotator, a2)
+      a3w = subset(a3, type == "word")
+      POStags = sapply(a3w$features, `[[`, "POS")
+      if(length(s[a3w]) == 1) {
+        tags <- data.frame(Tokens = c(s[a3w]), Tags = POStags)
+      } else {
+        tags <- data.frame(Tokens = s[a3w], Tags = POStags) 
+      }
+      tags$Tags_mod = grepl("NN|JJ|VB|RB", tags$Tags)
+      #tags$Tags_mod = grepl("JJ|VB|RB", tags$Tags)
+      chunk = vector()  
+      chunk[1] = as.numeric(tags$Tags_mod[1])
+      for (i in 2:nrow(tags)) {
+        if(is.na(tags$Tags_mod[i]) || is.null(tags$Tags_mod[i])) return(NA)
+        if(!tags$Tags_mod[i]) {
+          chunk[i] = 0
+        } else if (tags$Tags_mod[i] == tags$Tags_mod[i-1]) {
+          chunk[i] = chunk[i-1]
+        } else {
+          chunk[i] = max(chunk) + 1
         }
-        corpus[[i]]$content <- paste(tw, collapse=" ")
       }
-      
-      corpus <- tm_map(corpus, content_transformer(tolower)) #case normalize
-      corpus <- tm_map(corpus, fix.contractions)
-      corpus <- tm_map(corpus, content_transformer(removePunctuation)) #remove punctuations
-      corpus <- tm_map(corpus, content_transformer(removeWords), stopwords("english")) #remove stop words
-      
-      #slang <- read.csv("C:/Users/Paula Tan/Documents/SP/dict/noslang.csv", header=TRUE, sep=",", stringsAsFactors = FALSE)
-      
-      #check for spelling
-      for (i in 1:length(corpus$content)) { #for every tweet
-        tweet <- gsub("\\s+", " ", str_trim(corpus[[i]]$content))
-        tw <- strsplit(tweet, "\\s+")
-        tw <- unlist(tw)
-        #print(tw)
-        if(length(tw) > 0) {
-          for (j in 1:length(tw)) { #iterate per word
-            #tw[j] <- wordStem(c(tw[j]), language = "english")
-            #tw[j] <- spellCheck(tw[j])
-            token <- text_tokens(c(tw[j]), stemmer = "en")
-            tw[j] <- (unlist(token))[1]
-            tw[j] <- spellCheck(tw[j])
-          } 
-        }
-        corpus[[i]]$content <- tw
-      }
-      
-      return(corpus$content)
+      text_chunk <- split(as.character(tags$Tokens), chunk)
+      tag_pattern <- split(as.character(tags$Tags), chunk)
+      names(text_chunk) <- sapply(tag_pattern, function(x) paste(x, collapse = "-"))
+      res = text_chunk[grepl("NN-JJ|NN-VB|VB-JJ|NN.-NN|JJ|NN|VB", names(text_chunk))]
+      #res = text_chunk[grepl("VB-JJ|JJ|VB", names(text_chunk))]
+      res <- unlist(res, use.names=FALSE)
+      res <- paste(res, collapse=" ")
+      gc()
+      return(res) 
     }
     
     readDataSet <- function(filename) {
@@ -211,54 +373,6 @@ shinyServer(
       dataSet$sentiment <- as.factor(dataSet$sentiment)
       
       return(dataSet)
-    }
-    
-    useSVMWithMatrix <- function(df) {
-      train_data <- df[(1:33), ]
-      test_data <- df[-(1:33), ]
-      
-      dtMatrix <- create_matrix(df$review, weighting=weightTfIdf)
-      container <- create_container(dtMatrix, df$sentiment, trainSize=1:33, testSize= 34:66, virgin=FALSE)
-      svm_model <- train_model(container, "SVM", kernel="linear", cost=1)
-      results <- classify_model(container, svm_model)
-      print(results)
-    }
-    
-    useSVMWithoutMatrix <- function(df) {
-      train_data <- df[(1:33), ]
-      test_data <- df[-(1:33), ]
-      
-      #svm_model <- svm(
-      #              train_data$sentiment ~ train_data$review, 
-      #              data = train_data,
-      #              kernel = "linear",
-      #              #cross=10,
-      #              cost=10, 
-      #              scale=FALSE)
-      
-      #pred_train <- predict(svm_model, test_data)
-      #print(mean(pred_train==test_data$sentiment))
-      #print(pred_train)
-      
-      #model <- train(review ~ sentiment, data = train_data, method = "svmLinear2")
-      #from https://github.com/thomasp85/lime
-      #explainer <- lime(train_data, model)
-      #explanation <- explain(test_data, explainer, n_labels = 3, n_features = 1)
-      #head(explanation)
-      #plot_features(explanation)
-      
-      #tab <- table(pred=pred_train, true=test_data$sentiment)
-      #results <- confusionMatrix(tab)
-      #results <- as.matrix(results)
-      #print(results)
-      #x <- c(
-      #  sum(results["negative", "negative"], results["negative", "neutral"], results["negative", "positive"]),
-      #  sum(results["neutral", "negative"], results["neutral", "neutral"], results["neutral", "positive"]),
-      #  sum(results["positive", "negative"], results["positive", "neutral"], results["positive", "positive"])
-      #)
-      #labels <- c("Negative", "Neutral", "Positive")
-      # Plot the chart.
-      #output$pie <- renderPlot(pie(x,labels))
     }
   }
 )
