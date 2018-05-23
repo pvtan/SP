@@ -9,6 +9,7 @@ This project is called MoviSenti, which is a sentiment analyzer for movie review
 1. This project requires the following
 * R version 3.4.4
 * RStudio version 1.1.442
+* Twitter account for the Twitter API calls. Contact the developer for this prerequisite.
 
 2. To install the required packages, run the script *installPackages.R*.
 ```
