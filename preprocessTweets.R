@@ -1,6 +1,6 @@
 #install.packages("sentimentr")
 
-tweets.df <- read.csv("C:/Users/Paula Tan/Documents/SP/preprocessedDataSet1.csv", header=TRUE, sep=",", stringsAsFactors = FALSE)
+tweets.df <- read.csv("C:/Users/Paula Tan/Documents/SP/preprocessedDataSet2.csv", header=TRUE, sep=",", stringsAsFactors = FALSE)
 tweets.df <- tweets.df[!(tweets.df["text"] == ""), ]
 texts <- sentimentr::get_sentences(tweets.df$text)
 s <- sentimentr::sentiment_by(texts, by = NULL) 
@@ -15,5 +15,5 @@ tweets.df["text"] <- sapply(tweets.df["text"], function(row) iconv(row, to="utf-
 tweets.df["emotion"] <- NA
 tw <- as.vector(unlist(tweets.df["text"]))
 SA <- data.frame(text=tw,b=unlist(s$sent))
-write.csv(SA, "C:/Users/Paula Tan/Documents/SP/trainingData1.csv")
+write.csv(SA, "C:/Users/Paula Tan/Documents/SP/trainingData2.csv")
 

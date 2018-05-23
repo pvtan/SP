@@ -34,7 +34,7 @@ vignettes/*.pdf
 
 *.txt
 *.bin
-*.csv
+.csv
 
 dict/stanford-corenlp-full-2018-02-27
 rsconnect/

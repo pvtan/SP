@@ -8,13 +8,13 @@ shinyUI(fluidPage(theme = shinytheme("flatly"),
     sidebarLayout(
       sidebarPanel(
         h2("Input panel"),
-        textInput("query", "Enter movie title: ", ""),
+        textInput("query", "Enter movie title or hashtag: ", ""),
         radioButtons("retweets", "Remove retweets?",
                     c("Yes" = TRUE,
                       "No" = FALSE)),
-        radioButtons("preprocess", "Preprocess training data?",
-                     c("No" = FALSE,
-                       "Yes" = TRUE)),
+        #radioButtons("preprocess", "Preprocess training data?",
+        #             c("No" = FALSE,
+        #               "Yes" = TRUE)),
         actionButton("enter", "Enter")
       ),
       mainPanel(

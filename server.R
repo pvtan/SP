@@ -25,46 +25,48 @@ contractions <- data.frame(word = c("won't", "wont", "don't", "dont", "'ll", "th
 shinyServer(
   function(input, output) {
     observeEvent(input$enter, {
-      #check if hastag or title
-      if(substring(input$query, 1, 1) == "#") { #if hashtag
-        movieHashtag <- input$query
-        movieQuery <- paste0(movieHashtag)
-        print(paste0("Searching for ", movieQuery))
-      } else { #if title
-        tw <- strsplit(input$query, "\\s+")
-        tw <- unlist(tw)
-        movie <- paste(tw, collapse="")
-        movieHashtag <- paste0("#", movie, collapse="")
-        movieQuery <- paste0(input$query, " OR ", movieHashtag)
-        print(paste0("Searching for ", movieQuery))
-      }
-      
-      #spell checker
-      #tw <- strsplit(input$query, "\\s+")
-      #tw <- unlist(tw)
-      #for(i in 1:length(tw)) {
-      #  tw[i] <- spellCheck(tw[i])
-      #}
-      #movie <- paste(tw, collapse=" ") 
-      
-      tweetsRetrieved <- retrieveTweets(movieQuery)
-      tweets.df <- data.frame(lapply(tweetsRetrieved, as.character), stringsAsFactors=FALSE)
-      #remove movie in screenName
-      tweets.df <- removeMovieFoundInScreenname(substring(movieQuery, 2, nchar(movieQuery)), tweets.df)
-      #write to file
-      write.csv(tweets.df, file="unprocessedTweets.csv")
-      
-      #pre-processing of tweets
-      if(length(tweets.df) == 0) {
-        print("There are no tweets to undergo pre-processing.")
-      } else {
-        if(input$preprocess) {
-          tweetDataset <- read.csv("syuzhetTrainingData1.csv", 
-                                   header=TRUE, 
-                                   sep=",", 
-                                   stringsAsFactors = FALSE)
-          tweets.df <- preprocessTweets(tweetDataset, "preprocessedDataSet1.csv")
-        } else {
+      # if(input$preprocess) {
+      #   print("Start preprocessing data set")
+      #   tweetDataset <- read.csv("syuzhetTrainingData1.csv", 
+      #                            header=TRUE, 
+      #                            sep=",", 
+      #                            stringsAsFactors = FALSE)
+      #   tweets.df <- preprocessTweets(tweetDataset, "preprocessedDataSet2.csv")
+      #   print("file written")
+      # } else {
+        #check if hastag or title
+        if(substring(input$query, 1, 1) == "#") { #if hashtag
+          movieHashtag <- input$query
+          movieQuery <- paste0(movieHashtag)
+          print(paste0("Searching for ", movieQuery))
+        } else { #if title
+          tw <- strsplit(input$query, "\\s+")
+          tw <- unlist(tw)
+          movie <- paste(tw, collapse="")
+          movieHashtag <- paste0("#", movie, collapse="")
+          movieQuery <- paste0(input$query, " OR ", movieHashtag)
+          print(paste0("Searching for ", movieQuery))
+        }
+        
+        #spell checker
+        #tw <- strsplit(input$query, "\\s+")
+        #tw <- unlist(tw)
+        #for(i in 1:length(tw)) {
+        #  tw[i] <- spellCheck(tw[i])
+        #}
+        #movie <- paste(tw, collapse=" ") 
+        
+        tweetsRetrieved <- retrieveTweets(movieQuery)
+        print(paste0(nrow(tweetsRetrieved), " tweets retrieved", collapse = ""))
+        
+        if(nrow(tweetsRetrieved) != 0) {
+          tweets.df <- data.frame(lapply(tweetsRetrieved, as.character), stringsAsFactors=FALSE)
+          #remove movie in screenName
+          tweets.df <- removeMovieFoundInScreenname(substring(movieQuery, 2, nchar(movieQuery)), tweets.df)
+          #write to file
+          write.csv(tweets.df, file="unprocessedTweets.csv")
+          
+          #pre-processing of tweets
           withProgress(message = 'Preprocessing tweets', value = 0, {
             processedTweets <- preprocessTweets(tweets.df, "results.csv")
             n <- 100 # Number of times we'll go through the loop
@@ -93,24 +95,31 @@ shinyServer(
           #movie_tdm <- DocumentTermMatrix(movie_corpus, control=list(dictionary = Terms(tdm)))
           #movie_tdm <- as.matrix(movie_tdm)
           #movie_result <- predict(svm_model, newdata = movie_tdm)
+          lookUp1 <- setNames(c("negative", "neutral", "positive"), c(-1, 0 , 1))
           results <- cbind(processedTweets, 'sentiment' = results[, "SVM_LABEL"])
+          results["sentiment"] <- lapply(results["sentiment"], function(i) lookUp1[i])
           results <- results[, -which(names(results) %in% c("b"))]
           output$processed_tweets <- renderTable(results)
           
           createPieChart(results$sentiment)
           matrix <- as.matrix(matrix)
           createWordCloud(processedTweets$text, matrix)
+        } else {
+          print("There are no tweets retrieved!")
         }
-      }
+     # }
     })
     
     createPieChart <- function(movie_result) {
       labels <- c("Negative", "Neutral", "Positive")
       # Plot the chart.
       print(table(movie_result))
-      output$pie <- renderPlot(pie(table(movie_result),labels))
+      output$pie <- renderPlot(pie(table(movie_result), labels))
+      pie(table(movie_result), labels)
       output$bar <- renderPlot(barplot(table(movie_result), 
-                                       xlab="Sentiment"))
+                                       xlab="Sentiment", names.arg = labels))
+      barplot(table(movie_result), 
+              xlab="Sentiment", names.arg = labels)
     }
     
     createWordCloud <- function(raw, m) {
@@ -118,11 +127,8 @@ shinyServer(
       summary(v)
       output$cloud <- renderPlot({
         wordcloud(raw,
-                  max.words = 200,
-                  scale=c(5,0.5), 
-                  random.order=FALSE, 
-                  rot.per=0.35, 
-                  use.r.layout=FALSE, 
+                  min.freq = 1,
+                  max.words=50, random.order=FALSE, rot.per=0.35, 
                   colors=brewer.pal(8, "Dark2"))
       })
     }
@@ -148,7 +154,6 @@ shinyServer(
       compare <- compare[, !(colnames(compare) %in% c("cld2"))]
       print(nrow(compare))
       write.csv(compare, file = paste0("C:/Users/Paula Tan/Documents/SP/", filename, collapse = ""))
-      print("file written")
       return(compare)
     }
     
@@ -218,6 +223,7 @@ shinyServer(
                                from = "R_Encoding", to = "Description", 
                                exact = FALSE) #DataCombine
       tweets.df$text <- sapply(tweets.df$text, function(row) gsub(">", "", row))
+      #tweets.df$text <- sapply(tweets.df$text, function(row) gsub(">", " ", row))
       tweets.df$text <- sapply(tweets.df$text, function(row) gsub("<", " ", row))
       tweets.df <- FindReplace(data = tweets.df, Var = "text", 
                                replaceData = emoticons,
@@ -268,7 +274,9 @@ shinyServer(
     
     removePunctuationsAndNumbers <- function(tweets.df) {
       tweets <- tweets.df
-      tweets$text <- removePunctuation(tweets$text)
+      #tweets$text <- removePunctuation(tweets$text)
+      tweets$text <- textclean::replace_ordinal(tweets$text)
+      tweets$text <- sapply(tweets.df$text, (function(x) {return (gsub("[[:punct:]]"," ", x))}))
       tweets$text <- removeNumbers(tweets$text)
       tweets$text <- sapply(tweets$text, function(row) gsub("( )+[a-zA-Z]{1}( )+", " ", row))
       return(tweets)
