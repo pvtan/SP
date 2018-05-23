@@ -12,9 +12,6 @@ shinyUI(fluidPage(theme = shinytheme("flatly"),
         radioButtons("retweets", "Remove retweets?",
                     c("Yes" = TRUE,
                       "No" = FALSE)),
-        #radioButtons("preprocess", "Preprocess training data?",
-        #             c("No" = FALSE,
-        #               "Yes" = TRUE)),
         actionButton("enter", "Enter")
       ),
       mainPanel(

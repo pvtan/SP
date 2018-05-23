@@ -8,7 +8,6 @@ useSVMWithoutMatrix <- function(df,index) {
   train_data <- df[(1:index), ] #this must be 80 20
   test_data <- df[-(1:index), ]
   
-  #dtMatrix <- RTextTools::create_matrix(df["text"], weighting=tm::weightTfIdf)
   dtMatrix <- RTextTools::create_matrix(df["text"], weighting=tm::weightTf)
   save(dtMatrix, file="C:/Users/Paula Tan/Documents/SP/dtMatrix1.RData")
   cont <- RTextTools::create_container(dtMatrix, df$b, trainSize = 1:index, testSize = (index+1):nrow(df), virgin = FALSE)
@@ -28,7 +27,6 @@ useSVMWithoutMatrix <- function(df,index) {
   print(table(model_toy_result[,"SVM_LABEL"]))
   print(mean(model_toy_result[,"SVM_LABEL"]==df[(index+1):(nrow(df)), "b"]))
   pie(table(model_toy_result[,"SVM_LABEL"]), labels)
-  saveRDS(example1_model, file="svm_model.rds")
 }
 
 tweetDataset <- read.csv("C:/Users/Paula Tan/Documents/SP/trainingData1.csv", 
