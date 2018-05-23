@@ -27,3 +27,5 @@ Then in Line 49, replace "Acronym" to "acronym".
 ```
 source('server.R')
 ```
+
+5. To use the application, just type a movie title or a movie hashtag in the textbox.
